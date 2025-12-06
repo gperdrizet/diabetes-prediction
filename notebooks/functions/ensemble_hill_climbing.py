@@ -16,6 +16,7 @@ import numpy as np
 from . import ensemble_database
 import pandas as pd
 from scipy.stats import uniform, loguniform, randint
+from sklearn.base import clone
 from sklearn.decomposition import PCA
 from sklearn.ensemble import (
     RandomForestClassifier, GradientBoostingClassifier,
@@ -252,7 +253,7 @@ def generate_random_pipeline(
     
     # Build complete pipeline
     pipeline = Pipeline([
-        ('preprocessor', base_preprocessor),
+        ('preprocessor', clone(base_preprocessor)),  # Clone to avoid sharing fitted state
         ('feature_engineering', Pipeline(feature_steps)),
         ('classifier', classifier)
     ])
