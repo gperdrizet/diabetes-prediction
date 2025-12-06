@@ -10,6 +10,8 @@ Key features:
 - **Hyperparameter optimization**: Parameters across all pipeline steps were jointly optimized
 - **Resource-aware training**: Model was trained within specified memory (16GB) and runtime (10 min) constraints
 
+For details on model optimization and training, see the [Jupyter notebook on GitHub](https://github.com/gperdrizet/diabetes-prediction/blob/main/notebooks/01.1-logistic_regression_model.ipynb).
+
 ## Files
 
 - **Model file**: `logistic_regression.joblib` (scikit-learn Pipeline object serialized with joblib)
@@ -17,10 +19,10 @@ Key features:
 
 ## Training information
 
-- **Training date**: 2025-12-06 05:08:51
+- **Training date**: 2025-12-06 05:36:53
 - **Training samples**: 17,041
 - **Random state**: 315
-- **Cross-validation score (ROC-AUC)**: 0.6662
+- **Cross-validation score (ROC-AUC)**: 0.6216
 
 ## Hyperparameter optimization
 
@@ -28,7 +30,22 @@ Key features:
 - **Cross-validation folds**: 3
 - **Iterations**: 3
 - **Scoring metric**: ROC-AUC
-- **Optimization runtime**: 421.4 seconds (7.0 minutes)
+- **Optimization runtime**: 306.5 seconds (5.1 minutes)
+
+## Inference performance
+
+Measured on test dataset with 300,000 samples:
+
+### Timing
+- **Inference time**: 2.3224 seconds
+- **Throughput**: 129,176 samples/second
+
+### Memory footprint
+- **Process RSS delta**: -4.23 MB (Resident Set Size - physical memory)
+- **Process VMS delta**: -6.86 MB (Virtual Memory Size - total allocated)
+- **Python objects delta**: 264.46 MB (tracemalloc)
+
+Note: RSS (Resident Set Size) represents actual physical memory usage and is the most relevant metric for deployment planning. VMS includes memory that may be allocated but not physically used. Python object tracking via tracemalloc captures allocations within Python but may not include C-level allocations from NumPy/scikit-learn.
 
 ## Pipeline components
 
