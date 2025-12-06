@@ -8,7 +8,7 @@ Key features:
 - **End-to-end processing**: Automatically handles all preprocessing from raw data to predictions
 - **Reproducible transformations**: All fitted parameters (scalers, encoders, PCA components) are preserved
 - **Hyperparameter optimization**: Parameters across all pipeline steps were jointly optimized
-- **Resource-aware training**: Model was trained within specified memory (200GB) and runtime (360 min) constraints
+- **Resource-aware training**: Model was trained within specified memory (30GB) and runtime (1440 min) constraints
 
 For details on model optimization and training, see the [Jupyter notebook on GitHub](https://github.com/gperdrizet/diabetes-prediction/blob/main/notebooks/01.1-logistic_regression_model.ipynb).
 
@@ -20,26 +20,26 @@ For details on model optimization and training, see the [Jupyter notebook on Git
 
 ## Training information
 
-- **Training date**: 2025-12-06 08:52:45
-- **Training samples**: 61,699
+- **Training date**: 2025-12-06 11:28:53
+- **Training samples**: 23,621
 - **Random state**: 315
-- **Cross-validation score (ROC-AUC)**: 0.6475
+- **Cross-validation score (ROC-AUC)**: 0.6440
 
 ## Hyperparameter optimization
 
 - **Method**: Randomized Search CV
 - **Cross-validation folds**: 3
-- **Iterations**: 11
+- **Iterations**: 303
 - **Scoring metric**: ROC-AUC
-- **Optimization runtime**: 148.9 seconds (2.5 minutes)
+- **Optimization runtime**: 8268.7 seconds (137.8 minutes)
 
 ## Inference performance
 
 Measured on test dataset with 300,000 samples using `tracemalloc` to track peak memory allocation:
 
-- **Inference time**: 5.4668 seconds
-- **Throughput**: 54,877 samples/second
-- **Peak memory**: 1.9916 GB
+- **Inference time**: 5.2268 seconds
+- **Throughput**: 57,397 samples/second
+- **Peak memory**: 1.9938 GB
 
 ## Pipeline components
 
@@ -49,7 +49,7 @@ Measured on test dataset with 300,000 samples using `tracemalloc` to track peak 
 - **ID column dropper**: Automatically removes the 'id' column from input data (custom transformer)
 
 #### Numerical features
-- **IQR clipping**: Outlier clipping using interquartile range (multiplier: 1.37) *[optimized]* (custom transformer)
+- **IQR clipping**: Outlier clipping using interquartile range (multiplier: 1.41) *[optimized]* (custom transformer)
 - **Standardization**: Standard scaling (mean=0, std=1)
 - **Features**: age, alcohol_consumption_per_week, diet_score, physical_activity_minutes_per_week, sleep_hours_per_day, screen_time_hours_per_day, bmi, waist_to_hip_ratio, systolic_bp, diastolic_bp, heart_rate, cholesterol_total, hdl_cholesterol, ldl_cholesterol, triglycerides
 
@@ -63,7 +63,7 @@ Measured on test dataset with 300,000 samples using `tracemalloc` to track peak 
 
 - **Polynomial features**:
   - Degree: 2 *[optimized]*
-  - Include bias: False *[optimized]*
+  - Include bias: True *[optimized]*
   - Interaction only: True *[optimized]*
 
 - **Constant feature removal**: Removes features with zero variance (custom transformer)
@@ -71,15 +71,15 @@ Measured on test dataset with 300,000 samples using `tracemalloc` to track peak 
 - **Post-polynomial standardization**: Standard scaling after polynomial transformation
 
 - **PCA dimensionality reduction**:
-  - Components: 39 *[optimized]*
+  - Components: 54 *[optimized]*
   - SVD solver: randomized *[optimized]*
-  - Whiten: False *[optimized]*
+  - Whiten: True *[optimized]*
 
 ### 3. Classifier
 
 - **Algorithm**: Logistic regression
-- **Penalty**: l2 *[optimized]*
-- **Regularization (C)**: 0.2398 *[optimized]*
+- **Penalty**: None *[optimized]*
+- **Regularization (C)**: N/A *[optimized]*
 - **Max iterations**: 1000
 - **Class weight**: balanced
 
@@ -125,5 +125,5 @@ probabilities = model.predict_proba(X_test)
 - Input data can include the 'id' column - it will be automatically removed by the pipeline
 - The pipeline handles all preprocessing and feature engineering automatically
 - All transformations are applied in the correct sequence without requiring manual intervention
-- Model was trained with resource constraints: 200GB memory limit, 360 minute runtime limit
+- Model was trained with resource constraints: 30GB memory limit, 1440 minute runtime limit
 - The `logistic_regression_transformers.py` file must be in the Python path when loading the model
