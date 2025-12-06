@@ -15,11 +15,12 @@ For details on model optimization and training, see the [Jupyter notebook on Git
 ## Files
 
 - **Model file**: `logistic_regression.joblib` (scikit-learn Pipeline object serialized with joblib)
+- **Custom transformers**: `logistic_regression_transformers.py` (required for model deserialization)
 - **Documentation**: `logistic_regression.md`
 
 ## Training information
 
-- **Training date**: 2025-12-06 05:36:53
+- **Training date**: 2025-12-06 06:50:17
 - **Training samples**: 17,041
 - **Random state**: 315
 - **Cross-validation score (ROC-AUC)**: 0.6216
@@ -30,32 +31,25 @@ For details on model optimization and training, see the [Jupyter notebook on Git
 - **Cross-validation folds**: 3
 - **Iterations**: 3
 - **Scoring metric**: ROC-AUC
-- **Optimization runtime**: 306.5 seconds (5.1 minutes)
+- **Optimization runtime**: 306.3 seconds (5.1 minutes)
 
 ## Inference performance
 
-Measured on test dataset with 300,000 samples:
+Measured on test dataset with 300,000 samples using `tracemalloc` to track peak memory allocation:
 
-### Timing
-- **Inference time**: 2.3224 seconds
-- **Throughput**: 129,176 samples/second
-
-### Memory footprint
-- **Process RSS delta**: -4.23 MB (Resident Set Size - physical memory)
-- **Process VMS delta**: -6.86 MB (Virtual Memory Size - total allocated)
-- **Python objects delta**: 264.46 MB (tracemalloc)
-
-Note: RSS (Resident Set Size) represents actual physical memory usage and is the most relevant metric for deployment planning. VMS includes memory that may be allocated but not physically used. Python object tracking via tracemalloc captures allocations within Python but may not include C-level allocations from NumPy/scikit-learn.
+- **Inference time**: 1.1598 seconds
+- **Throughput**: 258,659 samples/second
+- **Peak memory**: 262.17 MB
 
 ## Pipeline components
 
 ### 1. Preprocessing
 
 #### ID column removal
-- **ID column dropper**: Automatically removes the 'id' column from input data
+- **ID column dropper**: Automatically removes the 'id' column from input data (custom transformer)
 
 #### Numerical features
-- **IQR clipping**: Outlier clipping using interquartile range (multiplier: 2.50) *[optimized]*
+- **IQR clipping**: Outlier clipping using interquartile range (multiplier: 2.50) *[optimized]* (custom transformer)
 - **Standardization**: Standard scaling (mean=0, std=1)
 - **Features**: age, alcohol_consumption_per_week, diet_score, physical_activity_minutes_per_week, sleep_hours_per_day, screen_time_hours_per_day, bmi, waist_to_hip_ratio, systolic_bp, diastolic_bp, heart_rate, cholesterol_total, hdl_cholesterol, ldl_cholesterol, triglycerides
 
@@ -72,7 +66,7 @@ Note: RSS (Resident Set Size) represents actual physical memory usage and is the
   - Include bias: False *[optimized]*
   - Interaction only: True *[optimized]*
 
-- **Constant feature removal**: Removes features with zero variance
+- **Constant feature removal**: Removes features with zero variance (custom transformer)
 
 - **Post-polynomial standardization**: Standard scaling after polynomial transformation
 
@@ -89,14 +83,34 @@ Note: RSS (Resident Set Size) represents actual physical memory usage and is the
 - **Max iterations**: 1000
 - **Class weight**: balanced
 
+## Custom transformers
+
+The model uses three custom scikit-learn transformers defined in `logistic_regression_transformers.py`:
+
+### IDColumnDropper
+Automatically removes the 'id' column from input DataFrames before processing. This allows the model to accept raw test data without manual preprocessing.
+
+### IQRClipper
+Clips outliers in numerical features based on the interquartile range (IQR). During fitting, calculates clipping bounds as Q1 - k×IQR and Q3 + k×IQR, where k is the optimized multiplier. This reduces the impact of extreme outliers while preserving the overall distribution.
+
+### ConstantFeatureRemover
+Removes features with zero variance after polynomial transformation. This eliminates redundant features that don't contribute to model predictions, reducing dimensionality and improving computational efficiency.
+
+**Important**: The `logistic_regression_transformers.py` file must be available in the Python path when loading the model, as joblib stores references to these classes and needs to import them during deserialization.
+
 ## Usage
 
 ```python
 import joblib
 import pandas as pd
+import sys
+from pathlib import Path
 
-# Load the model
-model = joblib.load('logistic_regression.joblib')
+# Add the models directory to the path (adjust as needed)
+sys.path.insert(0, str(Path('models').resolve()))
+
+# Load the model (this will import the custom transformers)
+model = joblib.load('models/logistic_regression.joblib')
 
 # Prepare test data (pipeline will automatically handle 'id' column)
 X_test = pd.read_csv('test.csv')
@@ -112,3 +126,4 @@ probabilities = model.predict_proba(X_test)
 - The pipeline handles all preprocessing and feature engineering automatically
 - All transformations are applied in the correct sequence without requiring manual intervention
 - Model was trained with resource constraints: 16GB memory limit, 10 minute runtime limit
+- The `logistic_regression_transformers.py` file must be in the Python path when loading the model
