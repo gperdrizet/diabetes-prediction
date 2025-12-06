@@ -15,10 +15,12 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, models, callbacks
-from keras_tuner import RandomSearch
 from sklearn.metrics import roc_auc_score
 
 from . import ensemble_database
+
+# Note: keras_tuner only needed for optimize_stage2_hyperparameters function
+# Import on-demand if that function is used
 
 
 def build_stage2_dnn(
@@ -93,6 +95,9 @@ def optimize_stage2_hyperparameters(
 ) -> Tuple[models.Sequential, Dict[str, Any]]:
     """Optimize stage 2 DNN hyperparameters using Keras Tuner.
     
+    NOTE: This function requires keras_tuner to be installed.
+    Install with: pip install keras-tuner
+    
     Parameters
     ----------
     X_train : np.ndarray
@@ -119,6 +124,15 @@ def optimize_stage2_hyperparameters(
     best_hyperparameters : dict
         Best hyperparameters found.
     """
+    # Import keras_tuner only when this function is called
+    try:
+        from keras_tuner import RandomSearch
+    except ImportError:
+        raise ImportError(
+            "keras_tuner is required for hyperparameter optimization. "
+            "Install with: pip install keras-tuner"
+        )
+    
     n_models = X_train.shape[1]
     
     if directory is None:
