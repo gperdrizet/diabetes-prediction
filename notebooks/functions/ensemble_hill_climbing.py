@@ -142,10 +142,11 @@ def generate_random_pipeline(
     # Optionally add PCA
     use_pca = rng.random() < 0.5
     if use_pca:
-        n_components = rng.randint(10, 201)
+        # Use variance-based selection to avoid dimensionality issues
+        n_components = rng.choice([0.90, 0.95, 0.99, 'mle'])
         feature_steps.append(('pca', PCA(
             n_components=n_components,
-            random_state=rng.randint(0, 100000)
+            random_state=rng.randint(0, 100000) if n_components != 'mle' else None
         )))
     
     # Add standard scaler before classifier
@@ -380,9 +381,15 @@ def quick_optimize_pipeline(
             search.fit(X, y)
             return search.best_estimator_, search.best_score_
         except Exception as e:
-            # If optimization fails, return original pipeline with score 0
+            # If optimization fails, fit original pipeline and return with score 0
             print(f"Optimization failed: {e}")
-            return pipeline, 0.0
+            try:
+                pipeline.fit(X, y)
+                return pipeline, 0.0
+            except Exception as e2:
+                # If even basic fitting fails, raise the error
+                print(f"Pipeline fitting also failed: {e2}")
+                raise e2
     else:
         # No hyperparameters to optimize, just fit and score
         try:
