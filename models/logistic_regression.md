@@ -20,10 +20,10 @@ For details on model optimization and training, see the [Jupyter notebook on Git
 
 ## Training information
 
-- **Training date**: 2025-12-06 06:50:17
+- **Training date**: 2025-12-06 07:14:02
 - **Training samples**: 17,041
 - **Random state**: 315
-- **Cross-validation score (ROC-AUC)**: 0.6216
+- **Cross-validation score (ROC-AUC)**: 0.6245
 
 ## Hyperparameter optimization
 
@@ -31,15 +31,15 @@ For details on model optimization and training, see the [Jupyter notebook on Git
 - **Cross-validation folds**: 3
 - **Iterations**: 3
 - **Scoring metric**: ROC-AUC
-- **Optimization runtime**: 306.3 seconds (5.1 minutes)
+- **Optimization runtime**: 377.9 seconds (6.3 minutes)
 
 ## Inference performance
 
 Measured on test dataset with 300,000 samples using `tracemalloc` to track peak memory allocation:
 
-- **Inference time**: 1.1598 seconds
-- **Throughput**: 258,659 samples/second
-- **Peak memory**: 262.17 MB
+- **Inference time**: 258.8212 seconds
+- **Throughput**: 1,159 samples/second
+- **Peak memory**: 191659.11 MB
 
 ## Pipeline components
 
@@ -49,7 +49,7 @@ Measured on test dataset with 300,000 samples using `tracemalloc` to track peak 
 - **ID column dropper**: Automatically removes the 'id' column from input data (custom transformer)
 
 #### Numerical features
-- **IQR clipping**: Outlier clipping using interquartile range (multiplier: 2.50) *[optimized]* (custom transformer)
+- **IQR clipping**: Outlier clipping using interquartile range (multiplier: 2.28) *[optimized]* (custom transformer)
 - **Standardization**: Standard scaling (mean=0, std=1)
 - **Features**: age, alcohol_consumption_per_week, diet_score, physical_activity_minutes_per_week, sleep_hours_per_day, screen_time_hours_per_day, bmi, waist_to_hip_ratio, systolic_bp, diastolic_bp, heart_rate, cholesterol_total, hdl_cholesterol, ldl_cholesterol, triglycerides
 
@@ -62,24 +62,24 @@ Measured on test dataset with 300,000 samples using `tracemalloc` to track peak 
 ### 2. Feature engineering
 
 - **Polynomial features**:
-  - Degree: 1 *[optimized]*
-  - Include bias: False *[optimized]*
-  - Interaction only: True *[optimized]*
+  - Degree: 4 *[optimized]*
+  - Include bias: True *[optimized]*
+  - Interaction only: False *[optimized]*
 
 - **Constant feature removal**: Removes features with zero variance (custom transformer)
 
 - **Post-polynomial standardization**: Standard scaling after polynomial transformation
 
 - **PCA dimensionality reduction**:
-  - Components: 18 *[optimized]*
+  - Components: 32 *[optimized]*
   - SVD solver: randomized *[optimized]*
-  - Whiten: True *[optimized]*
+  - Whiten: False *[optimized]*
 
 ### 3. Classifier
 
 - **Algorithm**: Logistic regression
 - **Penalty**: l2 *[optimized]*
-- **Regularization (C)**: 0.1305 *[optimized]*
+- **Regularization (C)**: 0.9149 *[optimized]*
 - **Max iterations**: 1000
 - **Class weight**: balanced
 
