@@ -1,5 +1,5 @@
-ipykernel      # Jupyter kernel for running notebooks
-matplotlib     # Plotting and visualization
-numpy          # Array operations and numerical computing
-pandas         # DataFrame support for input/output data
-scikit-learn   # Machine learning utilities used in some examples
+ipykernel
+matplotlib
+numpy
+pandas
+scikit-learn==1.2.2 # Version pinned for Kaggle compatibility
