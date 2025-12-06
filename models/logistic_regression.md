@@ -20,10 +20,10 @@ For details on model optimization and training, see the [Jupyter notebook on Git
 
 ## Training information
 
-- **Training date**: 2025-12-06 11:28:53
-- **Training samples**: 23,621
+- **Training date**: 2025-12-06 15:00:38
+- **Training samples**: 700,000
 - **Random state**: 315
-- **Cross-validation score (ROC-AUC)**: 0.6440
+- **Cross-validation score (ROC-AUC)**: 0.6438
 
 ## Hyperparameter optimization
 
@@ -31,15 +31,15 @@ For details on model optimization and training, see the [Jupyter notebook on Git
 - **Cross-validation folds**: 3
 - **Iterations**: 303
 - **Scoring metric**: ROC-AUC
-- **Optimization runtime**: 8268.7 seconds (137.8 minutes)
+- **Optimization runtime**: 8156.2 seconds (135.9 minutes)
 
 ## Inference performance
 
 Measured on test dataset with 300,000 samples using `tracemalloc` to track peak memory allocation:
 
-- **Inference time**: 5.2268 seconds
-- **Throughput**: 57,397 samples/second
-- **Peak memory**: 1.9938 GB
+- **Inference time**: 5.8265 seconds
+- **Throughput**: 51,489 samples/second
+- **Peak memory**: 1.9916 GB
 
 ## Pipeline components
 
@@ -49,7 +49,7 @@ Measured on test dataset with 300,000 samples using `tracemalloc` to track peak 
 - **ID column dropper**: Automatically removes the 'id' column from input data (custom transformer)
 
 #### Numerical features
-- **IQR clipping**: Outlier clipping using interquartile range (multiplier: 1.41) *[optimized]* (custom transformer)
+- **IQR clipping**: Outlier clipping using interquartile range (multiplier: 1.35) *[optimized]* (custom transformer)
 - **Standardization**: Standard scaling (mean=0, std=1)
 - **Features**: age, alcohol_consumption_per_week, diet_score, physical_activity_minutes_per_week, sleep_hours_per_day, screen_time_hours_per_day, bmi, waist_to_hip_ratio, systolic_bp, diastolic_bp, heart_rate, cholesterol_total, hdl_cholesterol, ldl_cholesterol, triglycerides
 
@@ -63,7 +63,7 @@ Measured on test dataset with 300,000 samples using `tracemalloc` to track peak 
 
 - **Polynomial features**:
   - Degree: 2 *[optimized]*
-  - Include bias: True *[optimized]*
+  - Include bias: False *[optimized]*
   - Interaction only: True *[optimized]*
 
 - **Constant feature removal**: Removes features with zero variance (custom transformer)
@@ -71,7 +71,7 @@ Measured on test dataset with 300,000 samples using `tracemalloc` to track peak 
 - **Post-polynomial standardization**: Standard scaling after polynomial transformation
 
 - **PCA dimensionality reduction**:
-  - Components: 54 *[optimized]*
+  - Components: 62 *[optimized]*
   - SVD solver: randomized *[optimized]*
   - Whiten: True *[optimized]*
 
