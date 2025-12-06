@@ -29,7 +29,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-from ensemble_transformers import (
+from .ensemble_transformers import (
     RandomFeatureSelector, RatioTransformer, ProductTransformer,
     DifferenceTransformer, SumTransformer, ReciprocalTransformer,
     SquareTransformer, SquareRootTransformer, LogTransformer,
