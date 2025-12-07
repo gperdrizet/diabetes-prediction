@@ -100,7 +100,7 @@ def train_single_candidate(args):
     
     Raises
     ------
-    TimeoutError : If training exceeds 5 minutes
+    TimeoutError : If training exceeds 10 minutes
     Exception : If training fails
     """
     result_queue = Queue()
@@ -110,7 +110,7 @@ def train_single_candidate(args):
     process.start()
     
     # Wait for completion with timeout
-    process.join(timeout=300)  # 5 minute timeout
+    process.join(timeout=600)  # 10 minute timeout
     
     if process.is_alive():
         # Timeout - forcefully kill the process and all children
@@ -122,7 +122,7 @@ def train_single_candidate(args):
                 pass
         parent.kill()
         process.join()  # Clean up zombie
-        raise TimeoutError(f"Training exceeded 5 minutes (iteration {args[0]})")
+        raise TimeoutError(f"Training exceeded 10 minutes (iteration {args[0]})")
     
     # Check if we got a result
     if result_queue.empty():
