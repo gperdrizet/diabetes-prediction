@@ -202,7 +202,7 @@ with tab1:
             height=400
         )
         
-        st.plotly_chart(fig_stage2, use_container_width=True)
+        st.plotly_chart(fig_stage2, width="stretch")
         
         # Stage 1 validation AUC over iterations
         fig_stage1 = go.Figure()
@@ -229,7 +229,7 @@ with tab1:
             height=400
         )
         
-        st.plotly_chart(fig_stage1, use_container_width=True)
+        st.plotly_chart(fig_stage1, width="stretch")
         
         # Ensemble size over time
         accepted_df = ensemble_df[ensemble_df['accepted'] == 1].copy()
@@ -244,7 +244,7 @@ with tab1:
         )
         fig_size.update_traces(mode='lines+markers')
         
-        st.plotly_chart(fig_size, use_container_width=True)
+        st.plotly_chart(fig_size, width="stretch")
 
 # ====================
 # DIVERSITY TAB
@@ -277,7 +277,7 @@ with tab2:
             height=400
         )
         
-        st.plotly_chart(fig_div, use_container_width=True)
+        st.plotly_chart(fig_div, width="stretch")
         
         # Diversity vs Stage 1 AUC scatter
         fig_scatter = px.scatter(
@@ -291,7 +291,7 @@ with tab2:
             hover_data=['iteration_num']
         )
         
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.plotly_chart(fig_scatter, width="stretch")
         
         # Classifier type distribution in ensemble
         if 'classifier_type' in ensemble_df.columns and not ensemble_df['classifier_type'].isna().all():
@@ -305,7 +305,7 @@ with tab2:
                 labels={'x': 'Classifier Type', 'y': 'Count'}
             )
             
-            st.plotly_chart(fig_classifiers, use_container_width=True)
+            st.plotly_chart(fig_classifiers, width="stretch")
 
 # ====================
 # COMPOSITION TAB
@@ -334,7 +334,7 @@ with tab3:
                 )
                 fig_trans.update_xaxes(tickangle=45)
                 
-                st.plotly_chart(fig_trans, use_container_width=True)
+                st.plotly_chart(fig_trans, width="stretch")
         
         # Classifier type distribution
         # Note: classifier_type column may not exist in old database schema
@@ -347,7 +347,7 @@ with tab3:
                 title="Classifier Type Distribution"
             )
             
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
         
         # PCA usage statistics
         # Note: use_pca and pca_components columns may not exist in old database schema
@@ -418,7 +418,7 @@ with tab4:
                     height=400
                 )
                 
-                st.plotly_chart(fig_loss, use_container_width=True)
+                st.plotly_chart(fig_loss, width="stretch")
             
             with col2:
                 # AUC curves
@@ -447,7 +447,7 @@ with tab4:
                     height=400
                 )
                 
-                st.plotly_chart(fig_auc, use_container_width=True)
+                st.plotly_chart(fig_auc, width="stretch")
             
             # Batch summary
             st.markdown("### Batch Summary")
@@ -495,7 +495,7 @@ with tab4:
                     markers=True
                 )
                 
-                st.plotly_chart(fig_growth, use_container_width=True)
+                st.plotly_chart(fig_growth, width="stretch")
     else:
         st.info("⏳ No Stage 2 training data yet. DNN training starts at 10 accepted models.")
 
