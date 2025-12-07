@@ -170,8 +170,9 @@ The ensemble generates diverse pipelines by randomly combining:
 12. **Nystroem**: Kernel approximation (RBF/poly/sigmoid/cosine, 30-300 components)
 13. **RBF Sampler**: Random Fourier features for RBF kernel
 14. **Skewed Chi²**: Approximates skewed chi-squared kernel
-15. **Power Transform**: Yeo-Johnson/Box-Cox normalization
-16. **Standard Scaler**: Standardization with configurable centering/scaling
+15. **Power Transform**: Yeo-Johnson normalization (handles negative values)
+16. **Quantile Transform**: Transform to uniform or normal distribution (100/500/1000 quantiles)
+17. **Standard Scaler**: Standardization with configurable centering/scaling
 
 **5 Dimensionality reduction techniques** (randomly select one or none):
 1. **PCA**: Principal Component Analysis (90%/95%/99% variance or MLE)

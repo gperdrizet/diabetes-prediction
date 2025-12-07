@@ -31,7 +31,7 @@ from sklearn.model_selection import RandomizedSearchCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, PowerTransformer, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, PowerTransformer, MinMaxScaler, QuantileTransformer
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import SGDClassifier
 from sklearn.kernel_approximation import Nystroem, RBFSampler, SkewedChi2Sampler
@@ -99,6 +99,7 @@ def generate_random_pipeline(
         ('rbf_sampler', RBFSampler),
         ('skewed_chi2', SkewedChi2Sampler),
         ('power_transform', PowerTransformer),
+        ('quantile_transform', QuantileTransformer),
         ('standard_scaler', StandardScaler)
     ]
     
@@ -197,6 +198,15 @@ def generate_random_pipeline(
                 method='yeo-johnson',
                 standardize=standardize
                 # No random_state parameter
+            )
+        elif name == 'quantile_transform':
+            # Transform features to follow a uniform or normal distribution
+            n_quantiles = rng.choice([100, 500, 1000])
+            output_distribution = rng.choice(['uniform', 'normal'])
+            transformer = TransformerClass(
+                n_quantiles=n_quantiles,
+                output_distribution=output_distribution,
+                random_state=None  # No random state for diversity
             )
         elif name == 'standard_scaler':
             # Standardize features by removing mean and scaling to unit variance
