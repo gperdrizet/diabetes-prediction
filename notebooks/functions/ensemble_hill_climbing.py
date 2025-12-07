@@ -379,11 +379,11 @@ def generate_random_pipeline(
         # StandardScaler for all other classifiers
         feature_steps.append(('scaler', StandardScaler()))
     
-    # DIVERSITY BOOST: Uniform low row sampling for ALL classifiers (2.5-30%)
-    # This maximizes training data diversity - different models see very different subsets
-    # Old approach: 1.25-100% varied by classifier (too much overlap)
-    # New approach: 2.5-30% uniform (minimal overlap, maximum diversity)
-    row_sample_pct = rng.uniform(0.025, 0.30)
+    # DIVERSITY BOOST: Uniform low row sampling for ALL classifiers (1.25-15%)
+    # SPEED FIX: Reduced by factor of 2 to prevent 30min+ timeouts
+    # This gives sample sizes of ~300 to 3,600 rows (from ~24,000 pool)
+    # Minimal overlap ensures maximum diversity
+    row_sample_pct = rng.uniform(0.0125, 0.15)
     
     # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
