@@ -189,7 +189,7 @@ def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1
     print(f"  Pipeline config:")
     print(f"    Classifier: {metadata['classifier_type']}")
     print(f"    Transformers: {metadata['transformers_used']}")
-    print(f"    Use PCA: {metadata['use_pca']}")
+    print(f"    Dimensionality reduction: {metadata.get('dim_reduction', 'None')}")
     
     # Train on training sample
     print(f"  Training pipeline...")

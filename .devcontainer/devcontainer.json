@@ -31,7 +31,7 @@
 				"/usr/bin/python3.13"
 			],
 			
-			// Disable automatic port forwarding to give explicit control
+			// Enable automatic port forwarding for Streamlit dashboard
 			"remote.autoForwardPorts": false,
 			"remote.restoreForwardedPorts": false
 		},
@@ -48,6 +48,15 @@
 		  "github.copilot-chat"                     // AI chat assistant for development questions
 		]
 	  }
+	},
+
+	// Forward port 8501 for Streamlit dashboard access
+	"forwardPorts": [8501],
+	"portsAttributes": {
+		"8501": {
+			"label": "Streamlit Dashboard",
+			"onAutoForward": "notify"
+		}
 	},
 
 	// Use 'onCreateCommand' to run commands once when the container is created

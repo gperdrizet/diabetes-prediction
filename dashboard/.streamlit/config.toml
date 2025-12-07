@@ -1,7 +1,7 @@
 [server]
-# Prevent browser from automatically opening
-headless = true
+headless = true     # Prevent browser from automatically opening
+address = "0.0.0.0" # Bind to all network interfaces to allow LAN access
+port = 8501         # Default port
 
 [browser]
-# Don't automatically open browser
-gatherUsageStats = false
+gatherUsageStats = false  # Don't automatically open browser
