@@ -112,6 +112,12 @@ class ConstantFeatureRemover(BaseEstimator, TransformerMixin):
         if self.constant_features_ is None:
             raise ValueError("Transformer must be fitted before calling transform")
         
+        # Safety check: If ALL features are constant, keep the first one
+        # This prevents downstream transformers from receiving 0 features
+        if len(self.constant_features_) >= self.n_features_in_:
+            # All features are constant - keep just the first feature
+            return X[:, :1]
+        
         # Create mask for non-constant features
         mask = np.ones(self.n_features_in_, dtype=bool)
         mask[self.constant_features_] = False

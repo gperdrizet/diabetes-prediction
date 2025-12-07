@@ -54,6 +54,11 @@ class RandomFeatureSelector(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         rng = np.random.RandomState(self.random_state)
         n_features = X.shape[1]
+        
+        # Safety check: If input has 0 features, we can't proceed
+        if n_features == 0:
+            raise ValueError(f"RandomFeatureSelector received 0 features. Check upstream transformers.")
+        
         n_selected = max(1, int(n_features * self.feature_fraction))
         self.selected_indices_ = np.sort(rng.choice(n_features, size=n_selected, replace=False))
         self.n_features_in_ = n_features
