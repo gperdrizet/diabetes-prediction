@@ -541,7 +541,8 @@ def generate_random_pipeline(
         learning_rate = 10 ** rng.uniform(-1.0, 0.5)  # 0.1 to 3.0 (wider, faster convergence)
         classifier = AdaBoostClassifier(
             n_estimators=n_estimators,
-            learning_rate=learning_rate
+            learning_rate=learning_rate,
+            algorithm='SAMME'  # Use SAMME to avoid deprecated SAMME.R
             # No random_state for diversity
         )
     
@@ -865,7 +866,8 @@ def log_iteration(
     training_memory_mb: Optional[float] = None,
     stage2_memory_mb: Optional[float] = None,
     training_time_sec: Optional[float] = None,
-    stage2_time_sec: Optional[float] = None
+    stage2_time_sec: Optional[float] = None,
+    timeout: bool = False
 ) -> None:
     """Log iteration details to SQLite database for dashboard monitoring.
     
@@ -901,6 +903,8 @@ def log_iteration(
         Time spent training pipeline (seconds).
     stage2_time_sec : float, optional
         Time spent training stage 2 DNN (seconds).
+    timeout : bool, optional
+        Whether training timed out (default: False).
     """
     try:
         # Serialize transformers list to comma-separated string
@@ -925,7 +929,8 @@ def log_iteration(
             'training_memory_mb': training_memory_mb,
             'stage2_memory_mb': stage2_memory_mb,
             'training_time_sec': training_time_sec,
-            'stage2_time_sec': stage2_time_sec
+            'stage2_time_sec': stage2_time_sec,
+            'timeout': 1 if timeout else 0
         }
         
         ensemble_database.insert_ensemble_iteration(iteration_data)

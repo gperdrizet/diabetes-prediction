@@ -74,7 +74,8 @@ def init_database() -> None:
             training_memory_mb REAL,
             stage2_memory_mb REAL,
             training_time_sec REAL,
-            stage2_time_sec REAL
+            stage2_time_sec REAL,
+            timeout INTEGER DEFAULT 0
         )
     ''')
     
@@ -124,6 +125,7 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
             - use_pca (int): 1 if PCA used, 0 otherwise
             - pca_components (float): Number of PCA components
             - pipeline_hash (str): Hash of pipeline configuration
+            - timeout (int): 1 if training timed out, 0 otherwise
     
     Raises:
         sqlite3.Error: If database operation fails
@@ -135,8 +137,9 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
                 timestamp, iteration_num, ensemble_id, stage1_val_auc, stage2_val_auc,
                 diversity_score, temperature, accepted, rejection_reason,
                 num_models, classifier_type, transformers_used, use_pca, pca_components,
-                pipeline_hash, training_memory_mb, stage2_memory_mb, training_time_sec, stage2_time_sec
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pipeline_hash, training_memory_mb, stage2_memory_mb, training_time_sec, stage2_time_sec,
+                timeout
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             iteration_data['timestamp'],
             iteration_data['iteration_num'],
@@ -156,7 +159,8 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
             iteration_data.get('training_memory_mb'),
             iteration_data.get('stage2_memory_mb'),
             iteration_data.get('training_time_sec'),
-            iteration_data.get('stage2_time_sec')
+            iteration_data.get('stage2_time_sec'),
+            iteration_data.get('timeout', 0)
         ))
         conn.commit()
     finally:
@@ -303,32 +307,6 @@ def get_summary_stats() -> Dict:
         }
     finally:
         conn.close()
-
-
-def reset_database() -> None:
-    """Reset the database by dropping and recreating all tables.
-    
-    WARNING: This is a DESTRUCTIVE operation that permanently deletes all data.
-    This operation is IRREVOCABLE. Use with extreme caution.
-    
-    Raises:
-        sqlite3.Error: If database operation fails
-    """
-    conn = sqlite3.connect(DB_PATH, timeout=30.0)
-    try:
-        # Drop existing tables
-        conn.execute('DROP TABLE IF EXISTS ensemble_log')
-        conn.execute('DROP TABLE IF EXISTS stage2_log')
-        conn.commit()
-        conn.close()
-        
-        # Reinitialize with fresh tables
-        init_database()
-        
-        print("WARNING: Database has been reset. All previous data has been permanently deleted.")
-    except Exception as e:
-        conn.close()
-        raise e
 
 
 def get_all_ensemble_ids() -> List[str]:

@@ -61,7 +61,8 @@ def get_summary_stats(df):
             'best_stage2_auc': 0.0,
             'current_temp': 0.0,
             'last_update': None,
-            'aggregation_method': 'N/A'
+            'aggregation_method': 'N/A',
+            'models_per_hour': 0.0
         }
     
     accepted = df[df['accepted'] == 1]
@@ -78,6 +79,20 @@ def get_summary_stats(df):
     else:
         agg_method = "DNN Weighted"
     
+    # Calculate models per hour (successful candidates only)
+    models_per_hour = 0.0
+    if 'timestamp' in df.columns and len(df) > 1:
+        try:
+            first_time = datetime.fromisoformat(df['timestamp'].iloc[0])
+            last_time = datetime.fromisoformat(df['timestamp'].iloc[-1])
+            hours_elapsed = (last_time - first_time).total_seconds() / 3600
+            if hours_elapsed > 0:
+                # Count successful training runs (exclude timeouts)
+                successful_runs = len(df[df.get('timeout', 0) == 0])
+                models_per_hour = successful_runs / hours_elapsed
+        except (ValueError, TypeError):
+            models_per_hour = 0.0
+    
     return {
         'total_iterations': len(df),
         'accepted_count': len(accepted),
@@ -86,7 +101,8 @@ def get_summary_stats(df):
         'best_stage2_auc': df['stage2_val_auc'].max() if 'stage2_val_auc' in df.columns else 0.0,
         'current_temp': df['temperature'].iloc[-1] if 'temperature' in df.columns else 0.0,
         'last_update': df['timestamp'].iloc[-1] if 'timestamp' in df.columns else None,
-        'aggregation_method': agg_method
+        'aggregation_method': agg_method,
+        'models_per_hour': models_per_hour
     }
 
 def check_database_exists():
@@ -117,7 +133,7 @@ if ensemble_df.empty:
 stats = get_summary_stats(ensemble_df)
 
 # Header metrics
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
     st.metric("Total Iterations", stats['total_iterations'])
@@ -132,6 +148,9 @@ with col4:
     st.metric("Temperature", f"{stats['current_temp']:.4f}")
     
 with col5:
+    st.metric("Models/Hour", f"{stats['models_per_hour']:.1f}")
+    
+with col6:
     if stats['last_update']:
         last_update = datetime.fromisoformat(stats['last_update'])
         time_diff = datetime.now() - last_update
@@ -171,6 +190,12 @@ if 'training_memory_mb' in ensemble_df.columns and not ensemble_df['training_mem
 accept_rate = (stats['accepted_count'] / stats['total_iterations'] * 100) if stats['total_iterations'] > 0 else 0
 st.progress(accept_rate / 100, text=f"Acceptance Rate: {accept_rate:.1f}% ({stats['accepted_count']} accepted / {stats['rejected_count']} rejected)")
 
+# Timeout rate metric (if data available)
+if 'timeout' in ensemble_df.columns:
+    timeout_count = ensemble_df['timeout'].sum()
+    timeout_rate = (timeout_count / stats['total_iterations'] * 100) if stats['total_iterations'] > 0 else 0
+    st.progress(timeout_rate / 100, text=f"Timeout Rate: {timeout_rate:.1f}% ({int(timeout_count)} timeouts / {stats['total_iterations']} iterations)")
+
 st.markdown("---")
 
 # ====================
@@ -181,7 +206,7 @@ st.sidebar.title("Navigation")
 # Page selection
 page = st.sidebar.radio(
     "Select page",
-    ["Performance", "Diversity", "Composition", "Stage 2 DNN", "Memory Usage", "Timing"],
+    ["Performance", "Diversity", "Stage 2 DNN", "Memory Usage", "Timing"],
     label_visibility="collapsed"
 )
 
@@ -192,74 +217,88 @@ if page == "Performance":
     st.subheader("Performance metrics over time")
     
     if not ensemble_df.empty:
-        # Stage 2 validation AUC over iterations
-        fig_stage2 = go.Figure()
+        # Combined Stage 1 and Stage 2 validation AUC plot
+        fig_combined = go.Figure()
         
-        # Add all points
-        fig_stage2.add_trace(go.Scatter(
-            x=ensemble_df['iteration_num'],
-            y=ensemble_df['stage2_val_auc'],
-            mode='markers',
-            marker=dict(
-                size=6,
-                color=ensemble_df['accepted'].map({1: 'green', 0: 'red'}),
-                symbol=ensemble_df['accepted'].map({1: 'circle', 0: 'x'})
-            ),
-            name='All Iterations',
-            text=ensemble_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['stage2_val_auc']:.4f} ({'Accepted' if row['accepted'] else 'Rejected'})", axis=1),
-            hovertemplate='%{text}<extra></extra>'
+        # Calculate rolling statistics for Stage 1 AUC (window of 10 iterations)
+        window_size = 10
+        ensemble_df_sorted = ensemble_df.sort_values('iteration_num')
+        stage1_rolling_mean = ensemble_df_sorted['stage1_val_auc'].rolling(window=window_size, min_periods=1).mean()
+        stage1_rolling_std = ensemble_df_sorted['stage1_val_auc'].rolling(window=window_size, min_periods=1).std()
+        
+        # Add Stage 1 shaded region (mean ± std)
+        fig_combined.add_trace(go.Scatter(
+            x=ensemble_df_sorted['iteration_num'],
+            y=stage1_rolling_mean + stage1_rolling_std,
+            mode='lines',
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig_combined.add_trace(go.Scatter(
+            x=ensemble_df_sorted['iteration_num'],
+            y=stage1_rolling_mean - stage1_rolling_std,
+            mode='lines',
+            line=dict(width=0),
+            fillcolor='rgba(68, 114, 196, 0.2)',
+            fill='tonexty',
+            name='Stage 1 ±1 StdDev',
+            hoverinfo='skip'
+        ))
+        
+        # Add Stage 1 mean line
+        fig_combined.add_trace(go.Scatter(
+            x=ensemble_df_sorted['iteration_num'],
+            y=stage1_rolling_mean,
+            mode='lines',
+            line=dict(color='rgba(68, 114, 196, 0.8)', width=2),
+            name='Stage 1 Mean (Individual Models)',
+            hovertemplate='Iter %{x}<br>Stage 1 Mean: %{y:.4f}<extra></extra>'
+        ))
+        
+        # Add Stage 2 line (ensemble performance)
+        # Use only accepted models for cleaner line
+        accepted_df = ensemble_df[ensemble_df['accepted'] == 1].sort_values('iteration_num')
+        fig_combined.add_trace(go.Scatter(
+            x=accepted_df['iteration_num'],
+            y=accepted_df['stage2_val_auc'],
+            mode='lines+markers',
+            line=dict(color='rgb(34, 139, 34)', width=3),
+            marker=dict(size=6, color='rgb(34, 139, 34)'),
+            name='Stage 2 (Ensemble)',
+            hovertemplate='Iter %{x}<br>Stage 2 AUC: %{y:.4f}<extra></extra>'
         ))
         
         # Add batch boundaries (every 10 accepted models)
-        accepted_df = ensemble_df[ensemble_df['accepted'] == 1]
         batch_iterations = accepted_df[accepted_df.index % 10 == 9]['iteration_num'].values
         
         for batch_iter in batch_iterations:
-            fig_stage2.add_vline(
+            fig_combined.add_vline(
                 x=batch_iter, 
                 line_dash="dash", 
-                line_color="blue",
+                line_color="gray",
                 opacity=0.3,
-                annotation_text=f"Batch {int((accepted_df[accepted_df['iteration_num'] <= batch_iter].shape[0]) / 10 * 10)}",
+                annotation_text=f"DNN Retrain",
                 annotation_position="top"
             )
         
-        fig_stage2.update_layout(
-            title="Stage 2 validation AUC (ensemble performance)",
-            xaxis_title="Iteration number",
-            yaxis_title="Stage 2 validation AUC",
-            hovermode='closest',
-            height=400
+        fig_combined.update_layout(
+            title="Validation AUC Over Time: Stage 1 (Individual Models) vs Stage 2 (Ensemble)",
+            xaxis_title="Iteration Number",
+            yaxis_title="Validation AUC",
+            hovermode='x unified',
+            height=500,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
         )
         
-        st.plotly_chart(fig_stage2, width="stretch")
-        
-        # Stage 1 validation AUC over iterations
-        fig_stage1 = go.Figure()
-        
-        fig_stage1.add_trace(go.Scatter(
-            x=ensemble_df['iteration_num'],
-            y=ensemble_df['stage1_val_auc'],
-            mode='markers',
-            marker=dict(
-                size=6,
-                color=ensemble_df['accepted'].map({1: 'green', 0: 'red'}),
-                symbol=ensemble_df['accepted'].map({1: 'circle', 0: 'x'})
-            ),
-            name='All Iterations',
-            text=ensemble_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['stage1_val_auc']:.4f} ({'Accepted' if row['accepted'] else 'Rejected'})", axis=1),
-            hovertemplate='%{text}<extra></extra>'
-        ))
-        
-        fig_stage1.update_layout(
-            title="Stage 1 validation AUC (individual model performance)",
-            xaxis_title="Iteration number",
-            yaxis_title="Stage 1 validation AUC",
-            hovermode='closest',
-            height=400
-        )
-        
-        st.plotly_chart(fig_stage1, width="stretch")
+        st.plotly_chart(fig_combined, use_container_width=True)
         
         # Ensemble size over time
         accepted_df = ensemble_df[ensemble_df['accepted'] == 1].copy()
@@ -286,16 +325,27 @@ elif page == "Diversity":
         # Diversity score over iterations
         fig_div = go.Figure()
         
+        # Add accepted models
+        accepted_df = ensemble_df[ensemble_df['accepted'] == 1]
         fig_div.add_trace(go.Scatter(
-            x=ensemble_df['iteration_num'],
-            y=ensemble_df['diversity_score'],
+            x=accepted_df['iteration_num'],
+            y=accepted_df['diversity_score'],
             mode='markers',
-            marker=dict(
-                size=6,
-                color=ensemble_df['accepted'].map({1: 'green', 0: 'red'}),
-                symbol=ensemble_df['accepted'].map({1: 'circle', 0: 'x'})
-            ),
-            text=ensemble_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['diversity_score']:.4f}", axis=1),
+            marker=dict(size=6, color='green', symbol='circle'),
+            name='Accepted',
+            text=accepted_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['diversity_score']:.4f}", axis=1),
+            hovertemplate='%{text}<extra></extra>'
+        ))
+        
+        # Add rejected models
+        rejected_df = ensemble_df[ensemble_df['accepted'] == 0]
+        fig_div.add_trace(go.Scatter(
+            x=rejected_df['iteration_num'],
+            y=rejected_df['diversity_score'],
+            mode='markers',
+            marker=dict(size=6, color='red', symbol='x'),
+            name='Rejected',
+            text=rejected_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['diversity_score']:.4f}", axis=1),
             hovertemplate='%{text}<extra></extra>'
         ))
         
@@ -304,46 +354,25 @@ elif page == "Diversity":
             xaxis_title="Iteration number",
             yaxis_title="Diversity score",
             hovermode='closest',
-            height=400
+            height=400,
+            showlegend=True
         )
         
         st.plotly_chart(fig_div, width="stretch")
         
-        # Diversity vs Stage 1 AUC scatter
+        # Diversity vs Stage 2 AUC scatter
         fig_scatter = px.scatter(
             ensemble_df,
-            x='stage1_val_auc',
-            y='diversity_score',
-            color='accepted',
-            color_discrete_map={1: 'green', 0: 'red'},
-            title="Diversity vs stage 1 validation AUC",
-            labels={'stage1_val_auc': 'Stage 1 validation AUC', 'diversity_score': 'Diversity score'},
-            hover_data=['iteration_num']
+            x='diversity_score',
+            y='stage2_val_auc',
+            title="Diversity vs Stage 2 Validation AUC (Ensemble Performance)",
+            labels={'diversity_score': 'Diversity score', 'stage2_val_auc': 'Stage 2 validation AUC'},
+            hover_data=['iteration_num', 'accepted']
         )
         
         st.plotly_chart(fig_scatter, width="stretch")
         
-        # Classifier type distribution in ensemble
-        if 'classifier_type' in ensemble_df.columns and not ensemble_df['classifier_type'].isna().all():
-            accepted_df = ensemble_df[ensemble_df['accepted'] == 1]
-            classifier_counts = accepted_df['classifier_type'].value_counts()
-            
-            fig_classifiers = px.bar(
-                x=classifier_counts.index,
-                y=classifier_counts.values,
-                title="Classifier types in ensemble",
-                labels={'x': 'Classifier type', 'y': 'Count'}
-            )
-            
-            st.plotly_chart(fig_classifiers, width="stretch")
-
-# ====================
-# COMPOSITION PAGE
-# ====================
-elif page == "Composition":
-    st.subheader("Ensemble composition")
-    
-    if not ensemble_df.empty:
+        # Composition Analysis - Accepted Models
         accepted_df = ensemble_df[ensemble_df['accepted'] == 1]
         
         # Transformer usage frequency
@@ -354,48 +383,65 @@ elif page == "Composition":
                 all_transformers.extend(trans_str.split(','))
             
             if all_transformers:
-                transformer_counts = pd.Series(all_transformers).value_counts()
+                transformer_counts = pd.Series(all_transformers).value_counts().sort_values(ascending=True)
                 
                 fig_trans = px.bar(
-                    x=transformer_counts.index,
-                    y=transformer_counts.values,
+                    x=transformer_counts.values,
+                    y=transformer_counts.index,
+                    orientation='h',
                     title="Transformer usage frequency in accepted models",
-                    labels={'x': 'Transformer', 'y': 'Count'}
+                    labels={'x': 'Count', 'y': 'Transformer'}
                 )
-                fig_trans.update_xaxes(tickangle=45)
                 
                 st.plotly_chart(fig_trans, width="stretch")
         
-        # Classifier type distribution
-        # Note: classifier_type column may not exist in old database schema
-        if 'classifier_type' in accepted_df.columns and not accepted_df['classifier_type'].isna().all():
-            classifier_counts = accepted_df['classifier_type'].value_counts()
+        # Classifier type distribution in ensemble
+        if 'classifier_type' in ensemble_df.columns and not ensemble_df['classifier_type'].isna().all():
+            classifier_counts = accepted_df['classifier_type'].value_counts().sort_values(ascending=True)
             
-            fig_pie = px.pie(
-                values=classifier_counts.values,
-                names=classifier_counts.index,
-                title="Classifier type distribution"
+            fig_classifiers = px.bar(
+                x=classifier_counts.values,
+                y=classifier_counts.index,
+                orientation='h',
+                title="Classifier types in ensemble",
+                labels={'x': 'Count', 'y': 'Classifier type'}
             )
             
-            st.plotly_chart(fig_pie, width="stretch")
+            st.plotly_chart(fig_classifiers, width="stretch")
         
-        # PCA usage statistics
-        # Note: use_pca and pca_components columns may not exist in old database schema
-        if 'use_pca' in accepted_df.columns:
-            pca_counts = accepted_df['use_pca'].value_counts()
+        # Dimensionality reduction usage
+        if 'pca_components' in accepted_df.columns:
+            # Create dimensionality reduction type column
+            dim_red_types = []
+            for idx, row in accepted_df.iterrows():
+                if pd.isna(row['pca_components']) or row.get('use_pca', 0) == 0:
+                    dim_red_types.append('None')
+                else:
+                    # Try to determine the type from pca_components value
+                    pca_comp = row['pca_components']
+                    if isinstance(pca_comp, str):
+                        dim_red_types.append(pca_comp)
+                    else:
+                        # Numeric value - it's likely PCA or similar
+                        # Check if it's a variance ratio (0-1) or component count
+                        if pca_comp < 1.0:
+                            dim_red_types.append('PCA (variance)')
+                        else:
+                            dim_red_types.append('PCA/Other')
             
-            col1, col2 = st.columns(2)
+            accepted_df_copy = accepted_df.copy()
+            accepted_df_copy['dim_reduction_type'] = dim_red_types
+            dim_red_counts = accepted_df_copy['dim_reduction_type'].value_counts().sort_values(ascending=True)
             
-            with col1:
-                st.metric("Models with PCA", pca_counts.get(1, 0))
-                st.metric("Models without PCA", pca_counts.get(0, 0))
+            fig_dim_red = px.bar(
+                x=dim_red_counts.values,
+                y=dim_red_counts.index,
+                orientation='h',
+                title="Dimensionality reduction technique usage in accepted models",
+                labels={'x': 'Count', 'y': 'Technique'}
+            )
             
-            with col2:
-                if 1 in pca_counts.index:
-                    pca_models = accepted_df[accepted_df['use_pca'] == 1]
-                    if 'pca_components' in pca_models.columns and not pca_models['pca_components'].isna().all():
-                        avg_components = pca_models['pca_components'].mean()
-                        st.metric("Avg PCA Components", f"{avg_components:.1f}")
+            st.plotly_chart(fig_dim_red, width="stretch")
 
 # ====================
 # STAGE 2 DNN PAGE
@@ -643,40 +689,6 @@ elif page == "Memory Usage":
                     st.metric("Avg Stage 2 Memory", f"{stage2_mem_df['stage2_memory_mb'].mean():.1f} MB")
                 with col3:
                     st.metric("Max Stage 2 Memory", f"{stage2_mem_df['stage2_memory_mb'].max():.1f} MB")
-        
-        # Memory efficiency analysis
-        st.markdown("### Memory efficiency")
-        
-        # Calculate memory per AUC point gained
-        accepted_df = ensemble_df[ensemble_df['accepted'] == 1].copy()
-        if len(accepted_df) > 1:
-            accepted_df['auc_improvement'] = accepted_df['stage2_val_auc'].diff()
-            accepted_df['memory_efficiency'] = accepted_df['training_memory_mb'] / (accepted_df['auc_improvement'] * 10000)
-            
-            # Remove inf and nan values
-            efficiency_df = accepted_df[accepted_df['memory_efficiency'].notna() & ~np.isinf(accepted_df['memory_efficiency'])]
-            
-            if not efficiency_df.empty:
-                fig_efficiency = go.Figure()
-                
-                fig_efficiency.add_trace(go.Scatter(
-                    x=efficiency_df['iteration_num'],
-                    y=efficiency_df['memory_efficiency'],
-                    mode='lines+markers',
-                    name='Memory Efficiency',
-                    line=dict(color='orange'),
-                    text=efficiency_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['memory_efficiency']:.2f} MB per 0.01% AUC", axis=1),
-                    hovertemplate='%{text}<extra></extra>'
-                ))
-                
-                fig_efficiency.update_layout(
-                    title="Memory efficiency (lower is better)",
-                    xaxis_title="Iteration number",
-                    yaxis_title="MB per 0.01% AUC improvement",
-                    height=400
-                )
-                
-                st.plotly_chart(fig_efficiency, width="stretch")
     else:
         st.info("Memory tracking data not available. This feature requires running with the updated training code.")
 
@@ -689,6 +701,74 @@ elif page == "Timing":
     if ensemble_df.empty or 'training_time_sec' not in ensemble_df.columns:
         st.info("No timing data available yet. Start training to collect metrics.")
     else:
+        # Timeout statistics (if available)
+        if 'timeout' in ensemble_df.columns:
+            timeout_df = ensemble_df[ensemble_df['timeout'] == 1]
+            total_attempts = len(ensemble_df)
+            timeout_count = len(timeout_df)
+            timeout_pct = (timeout_count / total_attempts * 100) if total_attempts > 0 else 0
+            
+            # Timeout summary
+            st.subheader("Timeout summary")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Timeouts", timeout_count)
+            with col2:
+                st.metric("Timeout Rate", f"{timeout_pct:.1f}%")
+            with col3:
+                successful_count = total_attempts - timeout_count
+                st.metric("Successful Runs", successful_count)
+            
+            # Timeout by classifier type
+            if not timeout_df.empty and 'classifier_type' in timeout_df.columns:
+                st.markdown("### Timeouts by classifier type")
+                
+                # Calculate timeout counts per classifier (excluding 'timeout' pseudo-type)
+                timeout_df_real = timeout_df[timeout_df['classifier_type'] != 'timeout']
+                ensemble_df_real = ensemble_df[ensemble_df['classifier_type'] != 'timeout']
+                
+                classifier_timeouts = timeout_df_real['classifier_type'].value_counts()
+                classifier_totals = ensemble_df_real['classifier_type'].value_counts()
+                classifier_timeout_rates = (classifier_timeouts / classifier_totals * 100).fillna(0)
+                
+                # Create combined dataframe
+                timeout_summary = pd.DataFrame({
+                    'Total Attempts': classifier_totals,
+                    'Timeouts': classifier_timeouts.reindex(classifier_totals.index, fill_value=0),
+                    'Timeout Rate (%)': classifier_timeout_rates.reindex(classifier_totals.index, fill_value=0)
+                }).sort_values('Timeout Rate (%)', ascending=False)
+                
+                # Display as table
+                st.dataframe(timeout_summary, use_container_width=True)
+                
+                # Bar chart - Timeout Rate
+                # Sort by timeout rate for horizontal display
+                timeout_summary_sorted = timeout_summary.sort_values('Timeout Rate (%)', ascending=True)
+                
+                fig_timeout_classifier = px.bar(
+                    x=timeout_summary_sorted['Timeout Rate (%)'],
+                    y=timeout_summary_sorted.index,
+                    orientation='h',
+                    title='Timeout rate by classifier type',
+                    labels={'x': 'Timeout rate (%)', 'y': 'Classifier type'}
+                )
+                st.plotly_chart(fig_timeout_classifier, use_container_width=True)
+                
+                # Bar chart - Timeout Count
+                timeout_count_sorted = timeout_summary.sort_values('Timeouts', ascending=True)
+                
+                fig_timeout_count = px.bar(
+                    x=timeout_count_sorted['Timeouts'],
+                    y=timeout_count_sorted.index,
+                    orientation='h',
+                    title='Number of timeouts by classifier type',
+                    labels={'x': 'Number of timeouts', 'y': 'Classifier type'}
+                )
+                st.plotly_chart(fig_timeout_count, use_container_width=True)
+            
+            st.markdown("---")
+        
         # Filter for rows with timing data
         df_time = ensemble_df[ensemble_df['training_time_sec'].notna()].copy()
         
@@ -724,10 +804,10 @@ elif page == "Timing":
             st.subheader("Training time over iterations")
             fig_time_iter = px.line(
                 df_time,
-                x='iteration',
+                x='iteration_num',
                 y='training_time_sec',
                 title='Parallel training time per iteration',
-                labels={'iteration': 'Iteration', 'training_time_sec': 'Time (seconds)'}
+                labels={'iteration_num': 'Iteration', 'training_time_sec': 'Time (seconds)'}
             )
             fig_time_iter.update_traces(mode='lines+markers', marker_color='green')
             st.plotly_chart(fig_time_iter, use_container_width=True)
@@ -758,6 +838,19 @@ elif page == "Timing":
             )
             st.plotly_chart(fig_time_classifier, use_container_width=True)
             
+            # Boxplot: Runtime distribution by classifier type
+            if 'classifier_type' in df_time.columns:
+                st.subheader("Runtime distribution by classifier type")
+                fig_time_box = px.box(
+                    df_time,
+                    x='classifier_type',
+                    y='training_time_sec',
+                    title='Training time distribution by classifier type',
+                    labels={'classifier_type': 'Classifier type', 'training_time_sec': 'Time (seconds)'},
+                    points='all'  # Show all individual points
+                )
+                st.plotly_chart(fig_time_box, use_container_width=True)
+            
             # Chart 3: Stage 2 DNN training time (if available)
             if 'stage2_time_sec' in df_time.columns:
                 df_stage2_time = df_time[df_time['stage2_time_sec'].notna()].copy()
@@ -765,10 +858,10 @@ elif page == "Timing":
                     st.subheader("Stage 2 DNN training time")
                     fig_stage2_time = px.line(
                         df_stage2_time,
-                        x='iteration',
+                        x='iteration_num',
                         y='stage2_time_sec',
                         title='Time for stage 2 DNN training',
-                        labels={'iteration': 'Iteration', 'stage2_time_sec': 'Time (seconds)'}
+                        labels={'iteration_num': 'Iteration', 'stage2_time_sec': 'Time (seconds)'}
                     )
                     fig_stage2_time.update_traces(mode='lines+markers', marker_color='purple')
                     st.plotly_chart(fig_stage2_time, use_container_width=True)
@@ -776,7 +869,7 @@ elif page == "Timing":
             # Chart 4: Time efficiency (time per AUC improvement)
             st.subheader("Time efficiency")
             if len(df_time) > 1:
-                df_time['auc_improvement'] = df_time['stage2_auc_roc'].diff()
+                df_time['auc_improvement'] = df_time['stage2_val_auc'].diff()
                 df_time['time_per_improvement'] = df_time['training_time_sec'] / df_time['auc_improvement'].abs()
                 df_time_eff = df_time[df_time['time_per_improvement'].notna() & 
                                       ~df_time['time_per_improvement'].isin([float('inf'), -float('inf')])].copy()
@@ -784,12 +877,11 @@ elif page == "Timing":
                 if not df_time_eff.empty:
                     fig_time_eff = px.scatter(
                         df_time_eff,
-                        x='iteration',
+                        x='iteration_num',
                         y='time_per_improvement',
-                        color='classifier_type',
                         title='Training time per AUC improvement (lower is better)',
-                        labels={'iteration': 'Iteration', 'time_per_improvement': 'Seconds per 0.01% AUC'},
-                        hover_data=['training_time_sec', 'stage2_auc_roc']
+                        labels={'iteration_num': 'Iteration', 'time_per_improvement': 'Seconds per 0.01% AUC'},
+                        hover_data=['classifier_type', 'training_time_sec', 'stage2_val_auc']
                     )
                     st.plotly_chart(fig_time_eff, use_container_width=True)
                 else:
