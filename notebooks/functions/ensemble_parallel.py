@@ -49,6 +49,28 @@ def _train_worker(args, result_queue):
             n_jobs=n_jobs
         )
         
+        # Print model configuration before training starts
+        classifier = pipeline.named_steps['classifier']
+        classifier_type = metadata['classifier_type']
+        sample_size = len(X_train_sample)
+        
+        print(f"\n[Iteration {iteration}] Training {classifier_type}")
+        print(f"  Sample size: {sample_size} rows ({metadata['row_sample_pct']*100:.1f}%)")
+        print(f"  Feature sampling: {metadata['col_sample_pct']*100:.1f}%")
+        print(f"  Transformers: {', '.join(metadata['transformers_used']) if metadata['transformers_used'] else 'None'}")
+        
+        # Print classifier hyperparameters
+        classifier_params = classifier.get_params()
+        # Filter out non-hyperparameter items (objects, None values)
+        relevant_params = {k: v for k, v in classifier_params.items() 
+                          if not k.startswith('_') and v is not None 
+                          and not callable(v) and not isinstance(v, (type, object))}
+        # Further filter to show only key params (not nested estimator details)
+        key_params = {k: v for k, v in relevant_params.items() if '__' not in k}
+        
+        if key_params:
+            print(f"  Hyperparameters: {key_params}")
+        
         # Train pipeline on pre-sampled data
         fitted_pipeline = pipeline.fit(X_train_sample, y_train_sample)
         
