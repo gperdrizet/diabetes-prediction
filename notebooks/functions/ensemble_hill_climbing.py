@@ -232,6 +232,10 @@ def generate_random_pipeline(
         idx = rng.randint(0, len(dim_reduction_options))
         dim_reduction_name, DimReductionClass = dim_reduction_options[idx]
         
+        # Check if NMF is selected (requires non-negative features)
+        if dim_reduction_name == 'nmf':
+            needs_nonnegative = True
+        
         # Configure based on technique
         if dim_reduction_name == 'pca':
             # Use variance-based selection to avoid dimensionality issues
