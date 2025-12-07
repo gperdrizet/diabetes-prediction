@@ -19,7 +19,7 @@ from scipy.stats import uniform, loguniform, randint
 from sklearn.base import clone
 from sklearn.decomposition import PCA
 from sklearn.ensemble import (
-    RandomForestClassifier, GradientBoostingClassifier,
+    RandomForestClassifier, HistGradientBoostingClassifier,
     ExtraTreesClassifier, AdaBoostClassifier
 )
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
@@ -192,13 +192,15 @@ def generate_random_pipeline(
         )
     
     elif classifier_type == 'gradient_boosting':
-        n_estimators = rng.choice([50, 100, 200])
+        max_iter = rng.choice([50, 100, 200])
         learning_rate = 10 ** rng.uniform(-2, 0)
-        max_depth = rng.randint(3, 8)
-        classifier = GradientBoostingClassifier(
-            n_estimators=n_estimators,
+        max_depth = rng.choice([None, 5, 10, 15, 20])
+        l2_regularization = 10 ** rng.uniform(-3, 1)
+        classifier = HistGradientBoostingClassifier(
+            max_iter=max_iter,
             learning_rate=learning_rate,
             max_depth=max_depth,
+            l2_regularization=l2_regularization,
             random_state=rng.randint(0, 100000)
         )
     
