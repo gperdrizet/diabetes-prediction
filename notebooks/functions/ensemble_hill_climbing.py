@@ -270,7 +270,16 @@ def generate_random_pipeline(
             algorithm = rng.choice(['parallel', 'deflation'])
             fun = rng.choice(['logcosh', 'exp', 'cube'])
             max_iter = rng.randint(200, 1001)  # 200 to 1000 iterations
-            whiten = rng.choice(['unit-variance', True, False])  # Explicit whiten setting
+            # Explicit whiten setting: randomly choose string or boolean options
+            whiten_choice = rng.randint(0, 4)
+            if whiten_choice == 0:
+                whiten = 'unit-variance'
+            elif whiten_choice == 1:
+                whiten = 'arbitrary-variance'
+            elif whiten_choice == 2:
+                whiten = True
+            else:
+                whiten = False
             dim_reducer = DimReductionClass(
                 n_components=n_components,
                 algorithm=algorithm,
