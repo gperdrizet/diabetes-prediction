@@ -362,9 +362,9 @@ def generate_random_pipeline(
         # Fast models: logistic, linear_svc, sgd, naive_bayes, lda, qda
         # Can handle larger samples efficiently
         if iteration < 100:
-            row_sample_pct = rng.uniform(0.35, 0.55)  # 35-55% (doubled from 17.5-27.5%)
+            row_sample_pct = rng.uniform(0.70, 1.0)  # 70-100% (doubled from 35-55% for SGD speedup)
         else:
-            row_sample_pct = rng.uniform(0.20, 0.35)  # 20-35% (doubled from 10-17.5%)
+            row_sample_pct = rng.uniform(0.40, 0.70)  # 40-70% (doubled from 20-35% for SGD speedup)
     
     # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
