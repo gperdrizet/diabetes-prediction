@@ -164,23 +164,21 @@ def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1
     print("TRAINING FOUNDER MODEL (baseline only - NOT added to ensemble)")
     print("=" * 80)
     
-    # Use same sample size range as hill climbing (1.25-15% of training pool)
-    # This keeps founder model size consistent with ensemble models
-    rng = np.random.RandomState(random_state)
-    sample_fraction = rng.uniform(0.0125, 0.15)
-    founder_sample_size = int(len(X_train_pool) * sample_fraction)
+    # Simple 10% sample of training pool for founder model
+    founder_sample_size = int(len(X_train_pool) * 0.10)
     
     # Sample from training pool
     X_train, _, y_train, _ = train_test_split(
         X_train_pool,
         y_train_pool,
         train_size=founder_sample_size,
-        stratify=y_train_pool
+        stratify=y_train_pool,
+        random_state=random_state
     )
     
     print(f"\nTraining founder model")
     print("-" * 80)
-    print(f"  Training samples: {len(X_train):,} ({sample_fraction*100:.1f}% of pool)")
+    print(f"  Training samples: {len(X_train):,} (10% of {len(X_train_pool):,} pool)")
     
     # Generate random pipeline for founder
     pipeline, metadata = generate_random_pipeline(
