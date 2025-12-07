@@ -388,16 +388,18 @@ def generate_random_pipeline(
     # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
         # SPEED FIX: Removed saga solver (too slow), kept fast solvers only
-        C = 10 ** rng.uniform(-3, 2)  # 0.001 to 100
         penalty = rng.choice(['l1', 'l2', None])
         
         # Fast solvers only - no saga or sag
         if penalty == 'l1':
             solver = 'liblinear'  # Only fast solver for l1
+            C = 10 ** rng.uniform(-3, 2)  # 0.001 to 100
         elif penalty == 'l2':
             solver = rng.choice(['lbfgs', 'liblinear', 'newton-cg'])  # Fast solvers for l2
+            C = 10 ** rng.uniform(-3, 2)  # 0.001 to 100
         else:  # penalty is None
             solver = rng.choice(['lbfgs', 'newton-cg'])  # Fast solvers for no penalty
+            C = 1.0  # C is ignored when penalty=None, set to default to avoid warning
         
         classifier = LogisticRegression(
             C=C,
