@@ -338,33 +338,50 @@ def generate_random_pipeline(
         feature_steps.append(('scaler', StandardScaler()))
     
     # Adaptive row sampling based on classifier complexity
-    # Slower/more complex models get smaller samples for faster training
-    # All ranges reduced by 50% for maximum speed
+    # Gradual decrease in sample size as iterations progress
+    # Sample size decreases linearly from iteration 0 to MAX_ITERATIONS
+    # This allows early exploration with more data, later refinement with less
+    
+    # Calculate progress factor (0.0 at iteration 0, 1.0 at iteration 500)
+    max_iter = 500  # Typical max iterations
+    progress = min(iteration / max_iter, 1.0)  # Clamp at 1.0
+    
     if classifier_type == 'knn':
         # Very slow: O(n) but expensive distance calculations
-        if iteration < 100:
-            row_sample_pct = rng.uniform(0.0375, 0.0625)  # 3.75-6.25% (halved from 7.5-12.5%)
-        else:
-            row_sample_pct = rng.uniform(0.0125, 0.0375)  # 1.25-3.75% (halved from 2.5-7.5%)
+        # Start: 3.75-6.25%, End: 1.25-3.75%
+        min_start, max_start = 0.0375, 0.0625
+        min_end, max_end = 0.0125, 0.0375
+        min_pct = min_start + progress * (min_end - min_start)
+        max_pct = max_start + progress * (max_end - max_start)
+        row_sample_pct = rng.uniform(min_pct, max_pct)
+        
     elif classifier_type in ['mlp', 'adaboost']:
         # Moderately slow: neural networks and boosting need iterations
-        if iteration < 100:
-            row_sample_pct = rng.uniform(0.125, 0.20)  # 12.5-20% (halved from 25-40%)
-        else:
-            row_sample_pct = rng.uniform(0.05, 0.125)  # 5-12.5% (halved from 10-25%)
+        # Start: 12.5-20%, End: 5-12.5%
+        min_start, max_start = 0.125, 0.20
+        min_end, max_end = 0.05, 0.125
+        min_pct = min_start + progress * (min_end - min_start)
+        max_pct = max_start + progress * (max_end - max_start)
+        row_sample_pct = rng.uniform(min_pct, max_pct)
+        
     elif classifier_type in ['random_forest', 'extra_trees', 'gradient_boosting']:
         # Moderate speed: tree ensembles scale reasonably well
-        if iteration < 100:
-            row_sample_pct = rng.uniform(0.15, 0.225)  # 15-22.5% (was 30-45%)
-        else:
-            row_sample_pct = rng.uniform(0.075, 0.15)  # 7.5-15% (was 15-30%)
+        # Start: 15-22.5%, End: 7.5-15%
+        min_start, max_start = 0.15, 0.225
+        min_end, max_end = 0.075, 0.15
+        min_pct = min_start + progress * (min_end - min_start)
+        max_pct = max_start + progress * (max_end - max_start)
+        row_sample_pct = rng.uniform(min_pct, max_pct)
+        
     else:
         # Fast models: logistic, linear_svc, sgd, naive_bayes, lda, qda
         # Can handle larger samples efficiently
-        if iteration < 100:
-            row_sample_pct = rng.uniform(0.70, 1.0)  # 70-100% (doubled from 35-55% for SGD speedup)
-        else:
-            row_sample_pct = rng.uniform(0.40, 0.70)  # 40-70% (doubled from 20-35% for SGD speedup)
+        # Start: 70-100%, End: 40-70%
+        min_start, max_start = 0.70, 1.0
+        min_end, max_end = 0.40, 0.70
+        min_pct = min_start + progress * (min_end - min_start)
+        max_pct = max_start + progress * (max_end - max_start)
+        row_sample_pct = rng.uniform(min_pct, max_pct)
     
     # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
