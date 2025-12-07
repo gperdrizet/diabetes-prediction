@@ -350,16 +350,17 @@ def generate_random_pipeline(
     classifier_options = [
         'logistic_regression',
         'random_forest',
-        'gradient_boosting',
         'linear_svc',
         'sgd_classifier',
-        'mlp',
-        'knn',
         'extra_trees',
         'adaboost',
         'naive_bayes',
         'lda',
         'qda'
+        # TEMPORARILY DISABLED (too slow - hold up entire batch):
+        # 'gradient_boosting',  # Sequential tree building is very slow
+        # 'mlp',                # Neural network with multiple layers is very slow
+        # 'knn'                 # Distance calculations on large datasets are slow
     ]
     
     classifier_type = rng.choice(classifier_options)

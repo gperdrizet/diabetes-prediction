@@ -233,9 +233,11 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         # Determine classifier type for this iteration
         rng = np.random.RandomState(random_state + current_iter)
         classifier_pool = [
-            'logistic', 'random_forest', 'gradient_boosting', 'linear_svc',
-            'sgd_classifier', 'mlp', 'knn', 'extra_trees', 'adaboost',
+            'logistic', 'random_forest', 'linear_svc',
+            'sgd_classifier', 'extra_trees', 'adaboost',
             'naive_bayes', 'lda', 'qda', 'ridge'
+            # TEMPORARILY DISABLED (too slow):
+            # 'gradient_boosting', 'mlp', 'knn'
         ]
         classifier_type = rng.choice(classifier_pool)
         classifier_types.append(classifier_type)
