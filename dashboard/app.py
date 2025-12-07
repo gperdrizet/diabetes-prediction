@@ -13,8 +13,8 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 
-# Hardcoded database path
-DB_PATH = '/workspaces/diabetes-prediction/data/ensemble_training.db'
+# Database path relative to dashboard directory
+DB_PATH = Path(__file__).parent.parent / 'data' / 'ensemble_training.db'
 
 # Page configuration
 st.set_page_config(
