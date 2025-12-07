@@ -81,8 +81,11 @@ def generate_random_pipeline(
     # Random column sampling (DIVERSITY BOOST: reduced from 50-95% to 30-70%)
     col_sample_pct = rng.uniform(0.30, 0.70)
     
-    # Select 1-3 feature engineering transformers
-    n_transformers = rng.randint(1, 4)
+    # DIVERSITY BOOST: 30% chance to skip ALL feature engineering (use raw features only)
+    skip_feature_engineering = rng.random() < 0.30
+    
+    # Select 0-3 feature engineering transformers (0 if skipping)
+    n_transformers = 0 if skip_feature_engineering else rng.randint(1, 4)
     
     # Available feature engineering transformers (excluding dimensionality reduction)
     transformer_options = [
@@ -113,13 +116,16 @@ def generate_random_pipeline(
         ('factor_analysis', FactorAnalysis)
     ]
     
-    # Randomly select transformers
-    selected_transformer_indices = rng.choice(
-        len(transformer_options),
-        size=n_transformers,
-        replace=False
-    )
-    selected_transformers = [transformer_options[i] for i in selected_transformer_indices]
+    # Randomly select transformers (only if not skipping)
+    if n_transformers > 0:
+        selected_transformer_indices = rng.choice(
+            len(transformer_options),
+            size=n_transformers,
+            replace=False
+        )
+        selected_transformers = [transformer_options[i] for i in selected_transformer_indices]
+    else:
+        selected_transformers = []
     
     # Build feature engineering pipeline steps
     feature_steps = []
