@@ -7,22 +7,12 @@ Handles batch training of candidate models and helper functions.
 import time
 import psutil
 import os
-import signal
 import numpy as np
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
+from concurrent.futures import TimeoutError
 
 from .ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash
-
-
-class TimeoutError(Exception):
-    """Exception raised when training exceeds timeout."""
-    pass
-
-
-def timeout_handler(signum, frame):
-    """Signal handler for timeout."""
-    raise TimeoutError("Training exceeded 5 minute timeout")
 
 
 def train_single_candidate(args):
@@ -30,6 +20,7 @@ def train_single_candidate(args):
     Train a single candidate pipeline in a separate process.
     
     NOTE: Training data is pre-sampled in main process to minimize serialization overhead.
+    NOTE: Timeout is handled by ProcessPoolExecutor, not here (prevents zombie processes).
     
     Parameters
     ----------
@@ -47,10 +38,6 @@ def train_single_candidate(args):
         - training_time: time to train (seconds)
     """
     iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs = args
-    
-    # Set 5 minute timeout for training
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(300)  # 5 minutes = 300 seconds
     
     try:
         start_time = time.time()
@@ -85,9 +72,6 @@ def train_single_candidate(args):
         
         training_time = time.time() - start_time
         
-        # Cancel the alarm - training completed successfully
-        signal.alarm(0)
-        
         return {
             'iteration': iteration,
             'fitted_pipeline': fitted_pipeline,
@@ -99,15 +83,8 @@ def train_single_candidate(args):
             'training_time_sec': training_time
         }
     
-    except TimeoutError as e:
-        # Cancel the alarm
-        signal.alarm(0)
-        # Re-raise with classifier info
-        raise TimeoutError(f"Training exceeded 5 minute timeout (classifier: {metadata.get('classifier_type', 'unknown')})")
-    
     except Exception as e:
-        # Cancel the alarm on any other error
-        signal.alarm(0)
+        # Re-raise all exceptions to be handled by ProcessPoolExecutor
         raise
 
 
