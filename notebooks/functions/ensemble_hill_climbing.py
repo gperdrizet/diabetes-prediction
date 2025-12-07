@@ -63,7 +63,7 @@ def generate_random_pipeline(
     iteration : int
         Current iteration number (affects row sampling strategy).
     random_state : int
-        DEPRECATED - Not used. Kept for backwards compatibility.
+        Random state for reproducibility and diversity.
     base_preprocessor : sklearn transformer
         Base preprocessing pipeline (column transformer for encoding).
     
@@ -74,7 +74,7 @@ def generate_random_pipeline(
     metadata : dict
         Dictionary containing pipeline configuration details.
     """
-    rng = np.random
+    rng = np.random.RandomState(random_state)
     
     # Random column sampling
     col_sample_pct = rng.uniform(0.50, 0.95)
