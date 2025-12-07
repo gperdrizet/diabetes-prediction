@@ -7,35 +7,27 @@ Handles batch training of candidate models and helper functions.
 import time
 import psutil
 import os
+import signal
 import numpy as np
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from concurrent.futures import TimeoutError
+from multiprocessing import Process, Queue
 
 from .ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash
 
 
-def train_single_candidate(args):
+def _train_worker(args, result_queue):
     """
-    Train a single candidate pipeline in a separate process.
-    
-    NOTE: Training data is pre-sampled in main process to minimize serialization overhead.
-    NOTE: Timeout is handled by ProcessPoolExecutor, not here (prevents zombie processes).
+    Worker function that trains a model and puts result in queue.
+    Runs in a separate process that can be forcefully terminated.
     
     Parameters
     ----------
     args : tuple
-        (iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs)
-    
-    Returns
-    -------
-    dict : Dictionary containing:
-        - iteration: iteration number
-        - fitted_pipeline: trained pipeline
-        - metadata: pipeline configuration
-        - val_auc_s1: stage 1 validation AUC
-        - pipeline_hash: unique pipeline hash
-        - training_time: time to train (seconds)
+        Training arguments
+    result_queue : multiprocessing.Queue
+        Queue to put the result in
     """
     iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs = args
     
@@ -72,7 +64,7 @@ def train_single_candidate(args):
         
         training_time = time.time() - start_time
         
-        return {
+        result = {
             'iteration': iteration,
             'fitted_pipeline': fitted_pipeline,
             'metadata': metadata,
@@ -82,10 +74,66 @@ def train_single_candidate(args):
             'memory_mb': memory_used,
             'training_time_sec': training_time
         }
-    
+        
+        result_queue.put(('success', result))
+        
     except Exception as e:
-        # Re-raise all exceptions to be handled by ProcessPoolExecutor
-        raise
+        result_queue.put(('error', str(e)))
+
+
+def train_single_candidate(args):
+    """
+    Train a single candidate with robust timeout handling.
+    
+    Uses multiprocessing.Process with forceful termination to ensure
+    that sklearn's internal loky workers are also killed on timeout.
+    
+    Parameters
+    ----------
+    args : tuple
+        (iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, 
+         base_preprocessor, random_state, n_jobs)
+    
+    Returns
+    -------
+    dict : Training result
+    
+    Raises
+    ------
+    TimeoutError : If training exceeds 5 minutes
+    Exception : If training fails
+    """
+    result_queue = Queue()
+    
+    # Start worker process
+    process = Process(target=_train_worker, args=(args, result_queue))
+    process.start()
+    
+    # Wait for completion with timeout
+    process.join(timeout=300)  # 5 minute timeout
+    
+    if process.is_alive():
+        # Timeout - forcefully kill the process and all children
+        parent = psutil.Process(process.pid)
+        for child in parent.children(recursive=True):
+            try:
+                child.kill()
+            except:
+                pass
+        parent.kill()
+        process.join()  # Clean up zombie
+        raise TimeoutError(f"Training exceeded 5 minutes (iteration {args[0]})")
+    
+    # Check if we got a result
+    if result_queue.empty():
+        raise Exception(f"Process terminated without result (iteration {args[0]})")
+    
+    status, result = result_queue.get()
+    
+    if status == 'error':
+        raise Exception(result)
+    
+    return result
 
 
 def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, y_train_pool,
