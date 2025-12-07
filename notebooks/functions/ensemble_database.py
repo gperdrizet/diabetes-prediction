@@ -21,6 +21,19 @@ import pandas as pd
 # Hardcoded database path
 DB_PATH = '/workspaces/diabetes-prediction/data/ensemble_training.db'
 
+def reset_database() -> None:
+    """Delete the database file if it exists to start fresh.
+    
+    This ensures each training run starts with a clean database.
+    """
+    db_path = Path(DB_PATH)
+    if db_path.exists():
+        db_path.unlink()
+        print(f"Deleted existing database: {DB_PATH}")
+    else:
+        print(f"No existing database found at: {DB_PATH}")
+
+
 def init_database() -> None:
     """Initialize the SQLite database with required tables and indexes.
     
