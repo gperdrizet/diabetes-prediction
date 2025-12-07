@@ -113,7 +113,7 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         
         # Random sample size for this iteration
         rng = np.random.RandomState(random_state + current_iter)
-        iteration_sample_size = rng.randint(10000, 50001)
+        iteration_sample_size = rng.randint(5000, 15001)
         
         # Sample from training pool
         X_train, _, y_train, _ = train_test_split(

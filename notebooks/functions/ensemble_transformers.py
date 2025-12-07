@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import KBinsDiscretizer
+from sklearn.cluster import KMeans
 from scipy.stats import gaussian_kde
 
 
@@ -439,3 +440,58 @@ class KDESmoothingTransformer(BaseEstimator, TransformerMixin):
         if input_features is None:
             return np.array([f'kde_{i}' for i in range(self.n_features_in_)])
         return np.array([f'kde_{name}' for name in input_features])
+
+
+class KMeansClusterTransformer(BaseEstimator, TransformerMixin):
+    """Adds K-Means cluster membership as a feature.
+    
+    Creates cluster labels and optionally distances to cluster centers as new features.
+    
+    Parameters
+    ----------
+    n_clusters : int, default=5
+        Number of clusters (3 to 10 recommended).
+    add_distances : bool, default=True
+        Whether to add distance to each cluster center as features.
+    random_state : int or None, default=None
+        Random state for reproducibility.
+    """
+    
+    def __init__(self, n_clusters=5, add_distances=True, random_state=None):
+        self.n_clusters = n_clusters
+        self.add_distances = add_distances
+        self.random_state = random_state
+        
+    def fit(self, X, y=None):
+        """Fit KMeans clustering."""
+        self.kmeans_ = KMeans(
+            n_clusters=self.n_clusters,
+            random_state=self.random_state,
+            n_init=10,
+            max_iter=100  # Limited for speed
+        )
+        self.kmeans_.fit(X)
+        self.n_features_in_ = X.shape[1]
+        # Output: cluster label + (optionally) distances to each cluster
+        self.n_features_out_ = 1 + (self.n_clusters if self.add_distances else 0)
+        return self
+    
+    def transform(self, X):
+        """Transform by adding cluster membership and distances."""
+        # Get cluster labels
+        cluster_labels = self.kmeans_.predict(X).reshape(-1, 1)
+        
+        if self.add_distances:
+            # Calculate distances to all cluster centers
+            distances = self.kmeans_.transform(X)
+            # Concatenate: [cluster_label, dist_to_cluster_0, dist_to_cluster_1, ...]
+            return np.hstack([cluster_labels, distances])
+        else:
+            return cluster_labels
+    
+    def get_feature_names_out(self, input_features=None):
+        """Get output feature names."""
+        names = ['cluster_label']
+        if self.add_distances:
+            names.extend([f'dist_to_cluster_{i}' for i in range(self.n_clusters)])
+        return np.array(names)
