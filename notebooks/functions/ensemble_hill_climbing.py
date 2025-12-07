@@ -430,11 +430,13 @@ def generate_random_pipeline(
         penalty = rng.choice(['l2', 'l1', 'elasticnet'])
         alpha = 10 ** rng.uniform(-5, -1)  # 0.00001 to 0.1
         learning_rate = rng.choice(['optimal', 'adaptive', 'constant'])
+        eta0 = 10 ** rng.uniform(-4, -1)  # 0.0001 to 0.1 (required for adaptive/constant)
         classifier = SGDClassifier(
             loss=loss,
             penalty=penalty,
             alpha=alpha,
             learning_rate=learning_rate,
+            eta0=eta0,
             max_iter=rng.choice([300, 500, 800]),  # Varied iterations for diversity
             early_stopping=True,
             class_weight='balanced'
