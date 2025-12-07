@@ -50,7 +50,7 @@ def generate_random_pipeline(
     iteration : int
         Current iteration number (affects row sampling strategy).
     random_state : int
-        Random state for reproducibility.
+        DEPRECATED - Not used. Kept for backwards compatibility.
     base_preprocessor : sklearn transformer
         Base preprocessing pipeline (column transformer for encoding).
     
@@ -61,7 +61,7 @@ def generate_random_pipeline(
     metadata : dict
         Dictionary containing pipeline configuration details.
     """
-    rng = np.random.RandomState(random_state)
+    rng = np.random
     
     # Adaptive row sampling: larger samples early, smaller later
     if iteration < 100:
@@ -110,7 +110,7 @@ def generate_random_pipeline(
             n_features = rng.randint(5, 31)
             transformer = TransformerClass(
                 n_features=n_features,
-                random_state=rng.randint(0, 100000)
+                random_state=None  # No random state for diversity
             )
         elif name == 'binning':
             n_bins = rng.randint(3, 11)
@@ -119,13 +119,13 @@ def generate_random_pipeline(
                 n_bins=n_bins,
                 strategy=strategy,
                 encode='ordinal',
-                random_state=rng.randint(0, 100000)
+                random_state=None  # No random state for diversity
             )
         elif name == 'kde':
             bandwidth = rng.choice(['scott', 'silverman'])
             transformer = TransformerClass(
                 bandwidth=bandwidth,
-                random_state=rng.randint(0, 100000)
+                random_state=None  # No random state for diversity
             )
         else:
             # Simple transformers
@@ -136,7 +136,7 @@ def generate_random_pipeline(
     # Add column selector
     feature_steps.insert(0, ('column_selector', RandomFeatureSelector(
         feature_fraction=col_sample_pct,
-        random_state=rng.randint(0, 100000)
+        random_state=None  # No random state for diversity
     )))
     
     # Optionally add PCA
@@ -146,7 +146,7 @@ def generate_random_pipeline(
         n_components = rng.choice([0.90, 0.95, 0.99, 'mle'])
         feature_steps.append(('pca', PCA(
             n_components=n_components,
-            random_state=rng.randint(0, 100000) if n_components != 'mle' else None
+            random_state=None  # No random state for diversity
         )))
     
     # Add standard scaler before classifier
@@ -174,8 +174,8 @@ def generate_random_pipeline(
             C=C,
             penalty=penalty,
             max_iter=1000,
-            class_weight='balanced',
-            random_state=rng.randint(0, 100000)
+            class_weight='balanced'
+            # No random_state for diversity
         )
     
     elif classifier_type == 'random_forest':
@@ -187,8 +187,8 @@ def generate_random_pipeline(
             max_depth=max_depth,
             min_samples_split=min_samples_split,
             class_weight='balanced',
-            random_state=rng.randint(0, 100000),
             n_jobs=1
+            # No random_state for diversity
         )
     
     elif classifier_type == 'gradient_boosting':
@@ -200,8 +200,8 @@ def generate_random_pipeline(
             max_iter=max_iter,
             learning_rate=learning_rate,
             max_depth=max_depth,
-            l2_regularization=l2_regularization,
-            random_state=rng.randint(0, 100000)
+            l2_regularization=l2_regularization
+            # No random_state for diversity
         )
     
     elif classifier_type == 'svc':
@@ -211,8 +211,8 @@ def generate_random_pipeline(
             C=C,
             kernel=kernel,
             probability=True,
-            class_weight='balanced',
-            random_state=rng.randint(0, 100000)
+            class_weight='balanced'
+            # No random_state for diversity
         )
     
     elif classifier_type == 'mlp':
@@ -221,8 +221,8 @@ def generate_random_pipeline(
         classifier = MLPClassifier(
             hidden_layer_sizes=hidden_layer_sizes,
             alpha=alpha,
-            max_iter=500,
-            random_state=rng.randint(0, 100000)
+            max_iter=500
+            # No random_state for diversity
         )
     
     elif classifier_type == 'knn':
@@ -241,8 +241,8 @@ def generate_random_pipeline(
             n_estimators=n_estimators,
             max_depth=max_depth,
             class_weight='balanced',
-            random_state=rng.randint(0, 100000),
             n_jobs=1
+            # No random_state for diversity
         )
     
     elif classifier_type == 'adaboost':
@@ -250,8 +250,8 @@ def generate_random_pipeline(
         learning_rate = 10 ** rng.uniform(-1, 0)
         classifier = AdaBoostClassifier(
             n_estimators=n_estimators,
-            learning_rate=learning_rate,
-            random_state=rng.randint(0, 100000)
+            learning_rate=learning_rate
+            # No random_state for diversity
         )
     
     # Build complete pipeline
