@@ -565,3 +565,169 @@ class KMeansClusterTransformer(BaseEstimator, TransformerMixin):
         if self.add_distances:
             names.extend([f'dist_to_cluster_{i}' for i in range(self.n_clusters)])
         return np.array(names)
+
+
+class NoiseInjector(BaseEstimator, TransformerMixin):
+    """Add deliberate noise to features to increase ensemble diversity.
+    
+    Randomly selects a subset of features and adds noise from various distributions
+    with different spreads. Each feature gets its own noise distribution and scale,
+    creating diverse perturbations across ensemble members.
+    
+    This helps create diverse models even when training on similar data, as each
+    model sees slightly different feature values.
+    
+    Parameters
+    ----------
+    feature_fraction : float, default=None
+        Fraction of features to add noise to (0 to 1).
+        If None, randomly selected during fit (0 to 1).
+    
+    noise_distributions : list of str, default=None
+        List of allowed noise distributions: 'normal', 'uniform', 'laplace', 'exponential'
+        If None, all distributions are available.
+    
+    noise_scale_range : tuple, default=(0.01, 0.2)
+        Range for noise scale as fraction of feature standard deviation.
+        Lower values = subtle noise, higher values = aggressive noise.
+    
+    random_state : int, default=None
+        Random state for reproducibility. None for diversity.
+    """
+    
+    def __init__(self, feature_fraction=None, noise_distributions=None, 
+                 noise_scale_range=(0.01, 0.2), random_state=None):
+        self.feature_fraction = feature_fraction
+        self.noise_distributions = noise_distributions
+        self.noise_scale_range = noise_scale_range
+        self.random_state = random_state
+        
+    def fit(self, X, y=None):
+        """Randomly select features and noise parameters for each.
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+        y : Ignored
+            Not used, present for API consistency.
+            
+        Returns
+        -------
+        self : object
+            Fitted transformer.
+        """
+        rng = np.random.RandomState(self.random_state)
+        X_array = np.asarray(X, dtype=np.float64)
+        n_features = X_array.shape[1]
+        
+        # Determine feature fraction if not set
+        if self.feature_fraction is None:
+            # Randomly select 0% to 100% of features
+            feature_fraction = rng.uniform(0.0, 1.0)
+        else:
+            feature_fraction = self.feature_fraction
+        
+        # Select which features to add noise to
+        n_noisy_features = max(0, int(n_features * feature_fraction))
+        if n_noisy_features > 0:
+            self.noisy_feature_indices_ = rng.choice(
+                n_features, 
+                size=n_noisy_features, 
+                replace=False
+            )
+        else:
+            self.noisy_feature_indices_ = np.array([], dtype=int)
+        
+        # Calculate feature standard deviations for noise scaling
+        # Replace infinities and NaNs before computing std
+        X_clean = X_array.copy()
+        X_clean[~np.isfinite(X_clean)] = np.nan
+        self.feature_stds_ = np.nanstd(X_clean, axis=0)
+        # Replace zero/nan stds with 1.0 to avoid division issues
+        self.feature_stds_[~np.isfinite(self.feature_stds_)] = 1.0
+        self.feature_stds_[self.feature_stds_ == 0] = 1.0
+        
+        # Available distributions
+        available_dists = self.noise_distributions or ['normal', 'uniform', 'laplace', 'exponential']
+        
+        # For each noisy feature, randomly select distribution and scale
+        self.noise_configs_ = []
+        for feat_idx in self.noisy_feature_indices_:
+            # Random distribution
+            distribution = rng.choice(available_dists)
+            
+            # Random noise scale (as fraction of feature std)
+            noise_scale = rng.uniform(*self.noise_scale_range)
+            
+            # Actual noise standard deviation
+            noise_std = noise_scale * self.feature_stds_[feat_idx]
+            
+            self.noise_configs_.append({
+                'feature_idx': feat_idx,
+                'distribution': distribution,
+                'noise_std': noise_std
+            })
+        
+        return self
+    
+    def transform(self, X):
+        """Add noise to selected features.
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+            
+        Returns
+        -------
+        X_noisy : ndarray of shape (n_samples, n_features)
+            Data with noise added to selected features.
+        """
+        X_array = np.asarray(X, dtype=np.float64).copy()
+        n_samples = X_array.shape[0]
+        
+        # Add noise to each selected feature
+        for config in self.noise_configs_:
+            feat_idx = config['feature_idx']
+            distribution = config['distribution']
+            noise_std = config['noise_std']
+            
+            # Generate noise based on distribution
+            if distribution == 'normal':
+                # Gaussian noise: mean=0, std=noise_std
+                noise = np.random.normal(0, noise_std, size=n_samples)
+            
+            elif distribution == 'uniform':
+                # Uniform noise: [-noise_std*sqrt(3), +noise_std*sqrt(3)]
+                # (scaled so variance equals noise_std^2)
+                width = noise_std * np.sqrt(3)
+                noise = np.random.uniform(-width, width, size=n_samples)
+            
+            elif distribution == 'laplace':
+                # Laplace noise: mean=0, scale parameter for std=noise_std
+                # scale = noise_std / sqrt(2)
+                scale = noise_std / np.sqrt(2)
+                noise = np.random.laplace(0, scale, size=n_samples)
+            
+            elif distribution == 'exponential':
+                # Exponential noise (centered): mean subtracted to center at 0
+                # scale = noise_std (exponential std = scale)
+                noise = np.random.exponential(noise_std, size=n_samples)
+                noise = noise - noise_std  # Center at 0
+            
+            else:
+                # Fallback to normal
+                noise = np.random.normal(0, noise_std, size=n_samples)
+            
+            # Add noise to feature
+            X_array[:, feat_idx] += noise
+        
+        return X_array
+    
+    def get_feature_names_out(self, input_features=None):
+        """Get output feature names (unchanged from input)."""
+        if input_features is None:
+            return None
+        return np.array(input_features)
+

@@ -38,7 +38,7 @@ from .ensemble_transformers import (
     CleanNumericTransformer, RandomFeatureSelector, RatioTransformer, ProductTransformer,
     DifferenceTransformer, SumTransformer, ReciprocalTransformer,
     SquareTransformer, SquareRootTransformer, LogTransformer,
-    BinningTransformer, KDESmoothingTransformer, KMeansClusterTransformer
+    BinningTransformer, KDESmoothingTransformer, KMeansClusterTransformer, NoiseInjector
 )
 
 # Import from models directory for constant feature removal
@@ -105,7 +105,8 @@ def generate_random_pipeline(
         # Note: SkewedChi2Sampler removed - requires X > -skewedness which conflicts with StandardScaler
         ('power_transform', PowerTransformer),
         ('quantile_transform', QuantileTransformer),
-        ('standard_scaler', StandardScaler)
+        ('standard_scaler', StandardScaler),
+        ('noise_injector', NoiseInjector)  # DIVERSITY BOOST: deliberate noise injection
     ]
     
     # Dimensionality reduction options (will select one or none)
@@ -216,6 +217,19 @@ def generate_random_pipeline(
             transformer = TransformerClass(
                 with_mean=with_mean,
                 with_std=with_std
+            )
+        elif name == 'noise_injector':
+            # DIVERSITY BOOST: Add deliberate noise to features
+            # Randomly select fraction of features to add noise to (0-100%)
+            feature_fraction = rng.uniform(0.0, 1.0)
+            # Randomly select noise scale range (fraction of feature std)
+            noise_scale_min = rng.uniform(0.001, 0.05)  # Min: 0.1% to 5%
+            noise_scale_max = rng.uniform(0.05, 0.3)    # Max: 5% to 30%
+            noise_scale_range = (noise_scale_min, noise_scale_max)
+            transformer = TransformerClass(
+                feature_fraction=feature_fraction,
+                noise_scale_range=noise_scale_range,
+                random_state=None  # No random state - different noise each time
             )
         else:
             # Simple transformers
