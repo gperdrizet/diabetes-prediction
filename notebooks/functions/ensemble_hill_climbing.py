@@ -521,7 +521,9 @@ def log_iteration(
     metadata: Dict[str, Any],
     ensemble_id: str,
     training_memory_mb: Optional[float] = None,
-    stage2_memory_mb: Optional[float] = None
+    stage2_memory_mb: Optional[float] = None,
+    training_time_sec: Optional[float] = None,
+    stage2_time_sec: Optional[float] = None
 ) -> None:
     """Log iteration details to SQLite database for dashboard monitoring.
     
@@ -553,6 +555,10 @@ def log_iteration(
         Memory used during pipeline training (MB).
     stage2_memory_mb : float, optional
         Memory used during stage 2 DNN training (MB).
+    training_time_sec : float, optional
+        Time spent training pipeline (seconds).
+    stage2_time_sec : float, optional
+        Time spent training stage 2 DNN (seconds).
     """
     try:
         # Serialize transformers list to comma-separated string
@@ -575,7 +581,9 @@ def log_iteration(
             'pca_components': metadata.get('n_pca_components'),
             'pipeline_hash': pipeline_hash,
             'training_memory_mb': training_memory_mb,
-            'stage2_memory_mb': stage2_memory_mb
+            'stage2_memory_mb': stage2_memory_mb,
+            'training_time_sec': training_time_sec,
+            'stage2_time_sec': stage2_time_sec
         }
         
         ensemble_database.insert_ensemble_iteration(iteration_data)

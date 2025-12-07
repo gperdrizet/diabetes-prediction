@@ -47,7 +47,9 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
     print(f"BATCH COMPLETE: Training stage 2 DNN on {len(ensemble_models)} models")
     print(f"{'=' * 80}")
     
-    # Track memory usage
+    # Track memory and time
+    import time
+    start_time = time.time()
     process = psutil.Process(os.getpid())
     start_memory = process.memory_info().rss / (1024 ** 2)  # MB
     
@@ -147,15 +149,17 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
         y=y_val_s2
     )
     
-    # Track peak memory
+    # Track peak memory and elapsed time
     peak_memory = process.memory_info().rss / (1024 ** 2)  # MB
     memory_used = peak_memory - start_memory
+    elapsed_time = time.time() - start_time
     
     print(f"\n  Stage 2 DNN trained!")
     print(f"  DNN ensemble AUC: {final_score:.6f}")
     print(f"  Memory used: {memory_used:.1f} MB")
+    print(f"  Time elapsed: {elapsed_time:.1f}s")
     
-    return stage2_model, final_score, memory_used
+    return stage2_model, final_score, memory_used, elapsed_time
 
 
 def save_ensemble_bundle(ensemble_models, stage2_model, best_ensemble_score, current_iter,

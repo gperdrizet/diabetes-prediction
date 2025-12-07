@@ -72,7 +72,9 @@ def init_database() -> None:
             pca_components REAL,
             pipeline_hash TEXT NOT NULL,
             training_memory_mb REAL,
-            stage2_memory_mb REAL
+            stage2_memory_mb REAL,
+            training_time_sec REAL,
+            stage2_time_sec REAL
         )
     ''')
     
@@ -133,8 +135,8 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
                 timestamp, iteration_num, ensemble_id, stage1_val_auc, stage2_val_auc,
                 diversity_score, temperature, accepted, rejection_reason,
                 num_models, classifier_type, transformers_used, use_pca, pca_components,
-                pipeline_hash, training_memory_mb, stage2_memory_mb
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pipeline_hash, training_memory_mb, stage2_memory_mb, training_time_sec, stage2_time_sec
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             iteration_data['timestamp'],
             iteration_data['iteration_num'],
@@ -152,7 +154,9 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
             iteration_data.get('pca_components'),
             iteration_data['pipeline_hash'],
             iteration_data.get('training_memory_mb'),
-            iteration_data.get('stage2_memory_mb')
+            iteration_data.get('stage2_memory_mb'),
+            iteration_data.get('training_time_sec'),
+            iteration_data.get('stage2_time_sec')
         ))
         conn.commit()
     finally:

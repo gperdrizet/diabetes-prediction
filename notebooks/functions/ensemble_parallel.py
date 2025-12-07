@@ -73,7 +73,8 @@ def train_single_candidate(args):
         'val_auc_s1': val_auc_s1,
         'pipeline_hash': pipeline_hash,
         'training_time': training_time,
-        'memory_mb': memory_used
+        'memory_mb': memory_used,
+        'training_time_sec': training_time
     }
 
 
