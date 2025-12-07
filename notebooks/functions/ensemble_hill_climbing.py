@@ -32,10 +32,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, PowerTransformer, MinMaxScaler, QuantileTransformer
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import SGDClassifier
-from sklearn.kernel_approximation import Nystroem, RBFSampler, SkewedChi2Sampler
+from sklearn.kernel_approximation import Nystroem, RBFSampler
 
 from .ensemble_transformers import (
-    RandomFeatureSelector, RatioTransformer, ProductTransformer,
+    CleanNumericTransformer, RandomFeatureSelector, RatioTransformer, ProductTransformer,
     DifferenceTransformer, SumTransformer, ReciprocalTransformer,
     SquareTransformer, SquareRootTransformer, LogTransformer,
     BinningTransformer, KDESmoothingTransformer, KMeansClusterTransformer
@@ -99,7 +99,7 @@ def generate_random_pipeline(
         ('kmeans', KMeansClusterTransformer),
         ('nystroem', Nystroem),
         ('rbf_sampler', RBFSampler),
-        ('skewed_chi2', SkewedChi2Sampler),
+        # Note: SkewedChi2Sampler removed - requires X > -skewedness which conflicts with StandardScaler
         ('power_transform', PowerTransformer),
         ('quantile_transform', QuantileTransformer),
         ('standard_scaler', StandardScaler)
@@ -182,15 +182,6 @@ def generate_random_pipeline(
                 gamma=gamma,
                 random_state=None  # No random state for diversity
             )
-        elif name == 'skewed_chi2':
-            # Approximates skewed chi-squared kernel (good for histograms)
-            n_components = int(10 ** rng.uniform(1.5, 2.5))  # 30 to 300 components
-            skewedness = 10 ** rng.uniform(-1, 1)  # 0.1 to 10
-            transformer = TransformerClass(
-                n_components=n_components,
-                skewedness=skewedness,
-                random_state=None  # No random state for diversity
-            )
         elif name == 'power_transform':
             # Transforms data to be more Gaussian-like
             # Only use yeo-johnson as it handles negative values (box-cox requires strictly positive data)
@@ -226,8 +217,29 @@ def generate_random_pipeline(
         
         feature_steps.append((name, transformer))
     
+    # Add initial scaling BEFORE feature engineering to prevent overflow
+    # This is inserted at position 0, so it runs first after column selection
+    scaler_choice = rng.choice(['standard', 'minmax', 'robust'])
+    if scaler_choice == 'standard':
+        initial_scaler = StandardScaler()
+    elif scaler_choice == 'minmax':
+        initial_scaler = MinMaxScaler()
+    else:  # robust
+        from sklearn.preprocessing import RobustScaler
+        initial_scaler = RobustScaler()
+    
+    # Add NaN/Inf cleaner AFTER feature engineering (handles NaN/Inf from log, division, etc.)
+    # Use median strategy as it's robust to outliers
+    nan_inf_cleaner = CleanNumericTransformer(strategy='median')
+    
     # Add constant feature remover (always first to clean up after preprocessing)
     feature_steps.insert(0, ('constant_remover', ConstantFeatureRemover()))
+    
+    # Add initial scaler (before feature engineering to prevent overflow)
+    feature_steps.insert(1, ('initial_scaler', initial_scaler))
+    
+    # Add NaN/Inf cleaner (after all transformations, before dim reduction)
+    feature_steps.append(('nan_inf_cleaner', nan_inf_cleaner))
     
     # Add column selector
     feature_steps.insert(0, ('column_selector', RandomFeatureSelector(
@@ -270,28 +282,38 @@ def generate_random_pipeline(
             )
         elif dim_reduction_name == 'fast_ica':
             # Independent Component Analysis (finds independent sources)
-            n_components = int(10 ** rng.uniform(0.7, 1.7))  # 5 to 50 components
             algorithm = rng.choice(['parallel', 'deflation'])
             fun = rng.choice(['logcosh', 'exp', 'cube'])
             max_iter = rng.randint(200, 1001)  # 200 to 1000 iterations
-            # Explicit whiten setting: randomly choose string or boolean options
-            whiten_choice = rng.randint(0, 4)
+            # Explicit whiten setting: randomly choose from valid options
+            # Valid values: 'unit-variance', 'arbitrary-variance', or False
+            whiten_choice = rng.randint(0, 3)
             if whiten_choice == 0:
                 whiten = 'unit-variance'
             elif whiten_choice == 1:
                 whiten = 'arbitrary-variance'
-            elif whiten_choice == 2:
-                whiten = True
             else:
                 whiten = False
-            dim_reducer = DimReductionClass(
-                n_components=n_components,
-                algorithm=algorithm,
-                fun=fun,
-                max_iter=max_iter,
-                whiten=whiten,
-                random_state=None  # No random state for diversity
-            )
+            
+            # Only set n_components when whiten is enabled (sklearn requirement)
+            if whiten is False:
+                dim_reducer = DimReductionClass(
+                    algorithm=algorithm,
+                    fun=fun,
+                    max_iter=max_iter,
+                    whiten=whiten,
+                    random_state=None  # No random state for diversity
+                )
+            else:
+                n_components = int(10 ** rng.uniform(0.7, 1.7))  # 5 to 50 components
+                dim_reducer = DimReductionClass(
+                    n_components=n_components,
+                    algorithm=algorithm,
+                    fun=fun,
+                    max_iter=max_iter,
+                    whiten=whiten,
+                    random_state=None  # No random state for diversity
+                )
         elif dim_reduction_name == 'factor_analysis':
             # Factor Analysis (similar to PCA but with noise modeling)
             n_components = int(10 ** rng.uniform(0.7, 1.7))  # 5 to 50 components

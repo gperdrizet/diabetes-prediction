@@ -13,6 +13,76 @@ from sklearn.cluster import KMeans
 from scipy.stats import gaussian_kde
 
 
+class CleanNumericTransformer(BaseEstimator, TransformerMixin):
+    """Replace NaN and infinite values with median.
+    
+    Handles both NaN and +/- infinity values that can be introduced by
+    feature engineering operations (log of negative, division by zero, etc.).
+    
+    Parameters
+    ----------
+    strategy : str, default='median'
+        The imputation strategy. Currently only 'median' is supported.
+    """
+    
+    def __init__(self, strategy='median'):
+        self.strategy = strategy
+        self.medians_ = None
+    
+    def fit(self, X, y=None):
+        """Learn the median values for each column.
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+        y : Ignored
+            Not used, present for API consistency.
+            
+        Returns
+        -------
+        self : object
+            Fitted transformer.
+        """
+        X_array = np.asarray(X, dtype=np.float64)
+        
+        # Replace infinities with NaN temporarily to compute median
+        X_clean = X_array.copy()
+        X_clean[~np.isfinite(X_clean)] = np.nan
+        
+        # Compute median for each column (ignoring NaN)
+        self.medians_ = np.nanmedian(X_clean, axis=0)
+        
+        # Handle columns that are all NaN/inf - use 0
+        self.medians_[np.isnan(self.medians_)] = 0.0
+        
+        return self
+    
+    def transform(self, X):
+        """Replace NaN and infinite values with learned medians.
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input data.
+            
+        Returns
+        -------
+        X_clean : ndarray of shape (n_samples, n_features)
+            Data with NaN and infinite values replaced.
+        """
+        X_array = np.asarray(X, dtype=np.float64)
+        X_clean = X_array.copy()
+        
+        # Replace all non-finite values (NaN, +inf, -inf) with median
+        for i in range(X_clean.shape[1]):
+            mask = ~np.isfinite(X_clean[:, i])
+            if np.any(mask):
+                X_clean[mask, i] = self.medians_[i]
+        
+        return X_clean
+
+
 class RandomFeatureSelector(BaseEstimator, TransformerMixin):
     """Randomly selects a subset of features (columns).
     

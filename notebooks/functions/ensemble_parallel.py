@@ -8,6 +8,7 @@ import time
 import psutil
 import os
 import signal
+import warnings
 import numpy as np
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -32,6 +33,10 @@ def _train_worker(args, result_queue):
     iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs = args
     
     try:
+        # Suppress expected warnings from random hyperparameter exploration
+        warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.decomposition._fastica')
+        warnings.filterwarnings('ignore', message='.*FastICA did not converge.*')
+        
         start_time = time.time()
         process = psutil.Process(os.getpid())
         start_memory = process.memory_info().rss / (1024 ** 2)  # MB
@@ -92,7 +97,7 @@ def train_single_candidate(args):
     ----------
     args : tuple
         (iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, 
-         base_preprocessor, random_state, n_jobs)
+         base_preprocessor, random_state, n_jobs, timeout_seconds)
     
     Returns
     -------
@@ -100,9 +105,16 @@ def train_single_candidate(args):
     
     Raises
     ------
-    TimeoutError : If training exceeds 10 minutes
+    TimeoutError : If training exceeds timeout
     Exception : If training fails
     """
+    # Extract timeout from args (default 15 minutes = 900 seconds)
+    if len(args) == 9:
+        timeout_seconds = args[8]
+        args = args[:8]  # Remove timeout from args for worker
+    else:
+        timeout_seconds = 900  # Default 15 minutes
+    
     result_queue = Queue()
     
     # Start worker process
@@ -110,7 +122,7 @@ def train_single_candidate(args):
     process.start()
     
     # Wait for completion with timeout
-    process.join(timeout=600)  # 10 minute timeout
+    process.join(timeout=timeout_seconds)
     
     if process.is_alive():
         # Timeout - forcefully kill the process and all children
@@ -122,7 +134,7 @@ def train_single_candidate(args):
                 pass
         parent.kill()
         process.join()  # Clean up zombie
-        raise TimeoutError(f"Training exceeded 10 minutes (iteration {args[0]})")
+        raise TimeoutError(f"Training exceeded {timeout_seconds/60:.1f} minutes (iteration {args[0]})")
     
     # Check if we got a result
     if result_queue.empty():
@@ -137,7 +149,7 @@ def train_single_candidate(args):
 
 
 def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, y_train_pool,
-                           X_val_s1, y_val_s1, base_preprocessor, random_state, total_cpus=None):
+                           X_val_s1, y_val_s1, base_preprocessor, random_state, total_cpus=None, timeout_minutes=15):
     """
     Prepare a batch of training jobs for parallel execution.
     
@@ -166,12 +178,14 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         Base random state
     total_cpus : int, optional
         Total CPUs available for allocation. If None, uses all available cores.
+    timeout_minutes : int, optional
+        Timeout in minutes for each model training. Default is 15 minutes.
     
     Returns
     -------
     list
-        List of tuples for parallel training, each containing pre-sampled training data
-        and allocated CPU cores
+        List of tuples for parallel training, each containing pre-sampled training data,
+        allocated CPU cores, and timeout in seconds
     """
     # Determine total CPUs available
     if total_cpus is None:
@@ -270,7 +284,7 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
             random_state=random_state + current_iter
         )
         
-        # Pass only the sampled data (much smaller!) + allocated CPU cores
+        # Pass only the sampled data (much smaller!) + allocated CPU cores + timeout
         # Data remains as DataFrames for ColumnTransformer compatibility
         batch_jobs.append((
             current_iter,
@@ -280,7 +294,8 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
             y_val_s1,        # Full validation (Series)
             base_preprocessor,
             random_state + current_iter,
-            cores_per_job[i]  # Allocated CPU cores for this model
+            cores_per_job[i],  # Allocated CPU cores for this model
+            timeout_minutes * 60  # Timeout in seconds
         ))
     
     return batch_jobs
