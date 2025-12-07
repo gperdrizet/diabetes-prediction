@@ -37,6 +37,13 @@ from .ensemble_transformers import (
     BinningTransformer, KDESmoothingTransformer
 )
 
+# Import from models directory for constant feature removal
+import sys
+from pathlib import Path
+models_path = Path(__file__).resolve().parent.parent.parent / 'models'
+sys.path.insert(0, str(models_path))
+from logistic_regression_transformers import ConstantFeatureRemover
+
 
 def generate_random_pipeline(
     iteration: int,
@@ -132,6 +139,9 @@ def generate_random_pipeline(
             transformer = TransformerClass()
         
         feature_steps.append((name, transformer))
+    
+    # Add constant feature remover (always first to clean up after preprocessing)
+    feature_steps.insert(0, ('constant_remover', ConstantFeatureRemover()))
     
     # Add column selector
     feature_steps.insert(0, ('column_selector', RandomFeatureSelector(

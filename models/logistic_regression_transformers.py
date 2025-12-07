@@ -53,25 +53,65 @@ class IQRClipper(BaseEstimator, TransformerMixin):
 
 
 class ConstantFeatureRemover(BaseEstimator, TransformerMixin):
-    """Removes features with constant values (zero variance)."""
+    """Removes features with constant values (zero variance).
     
-    def __init__(self):
+    This transformer identifies features that have the same value across all samples
+    (or nearly constant with variance close to zero) and removes them, as they provide
+    no discriminative information for modeling.
+    """
+    
+    def __init__(self, variance_threshold=1e-10):
+        """Initialize the constant feature remover.
+        
+        Parameters
+        ----------
+        variance_threshold : float, default=1e-10
+            Features with variance below this threshold are considered constant.
+        """
+        self.variance_threshold = variance_threshold
         self.constant_features_ = None
         self.n_features_in_ = None
         self.n_features_out_ = None
     
     def fit(self, X, y=None):
-        """Identify constant-valued features."""
+        """Identify constant-valued features.
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : array-like of shape (n_samples,), default=None
+            Target values (ignored).
+        
+        Returns
+        -------
+        self : object
+            Fitted transformer.
+        """
         # Calculate variance for each feature
         variances = np.var(X, axis=0)
-        # Identify constant features (variance close to zero)
-        self.constant_features_ = np.where(np.isclose(variances, 0.0))[0]
+        # Identify constant features (variance below threshold)
+        self.constant_features_ = np.where(variances < self.variance_threshold)[0]
         self.n_features_in_ = X.shape[1]
         self.n_features_out_ = self.n_features_in_ - len(self.constant_features_)
         return self
     
     def transform(self, X):
-        """Remove constant-valued features."""
+        """Remove constant-valued features.
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Data to transform.
+        
+        Returns
+        -------
+        X_transformed : array-like of shape (n_samples, n_features_out)
+            Data with constant features removed.
+        """
+        if self.constant_features_ is None:
+            raise ValueError("Transformer must be fitted before calling transform")
+        
         # Create mask for non-constant features
         mask = np.ones(self.n_features_in_, dtype=bool)
         mask[self.constant_features_] = False
