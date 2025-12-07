@@ -21,7 +21,7 @@ def train_single_candidate(args):
     Parameters
     ----------
     args : tuple
-        (iteration, X_train, y_train, X_val_s1, y_val_s1, base_preprocessor, random_state)
+        (iteration, X_train_pool, y_train_pool, X_val_s1, y_val_s1, base_preprocessor, random_state)
     
     Returns
     -------
@@ -33,17 +33,31 @@ def train_single_candidate(args):
         - pipeline_hash: unique pipeline hash
         - training_time: time to train (seconds)
     """
-    iteration, X_train, y_train, X_val_s1, y_val_s1, base_preprocessor, random_state = args
+    iteration, X_train_pool, y_train_pool, X_val_s1, y_val_s1, base_preprocessor, random_state = args
     
     start_time = time.time()
     process = psutil.Process(os.getpid())
     start_memory = process.memory_info().rss / (1024 ** 2)  # MB
     
-    # Generate random pipeline
+    # Generate random pipeline (includes adaptive row_sample_pct in metadata)
     pipeline, metadata = generate_random_pipeline(
         iteration=iteration,
         random_state=random_state,
         base_preprocessor=base_preprocessor
+    )
+    
+    # Apply adaptive row sampling based on metadata
+    row_sample_pct = metadata['row_sample_pct']
+    n_total = len(X_train_pool)
+    n_sample = max(100, int(n_total * row_sample_pct))  # At least 100 samples
+    
+    # Sample from training pool
+    X_train, _, y_train, _ = train_test_split(
+        X_train_pool,
+        y_train_pool,
+        train_size=n_sample,
+        stratify=y_train_pool,
+        random_state=random_state
     )
     
     # Train pipeline
@@ -111,22 +125,12 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         if current_iter >= max_iterations:
             break
         
-        # Random sample size for this iteration
-        rng = np.random.RandomState(random_state + current_iter)
-        iteration_sample_size = rng.randint(5000, 15001)
-        
-        # Sample from training pool
-        X_train, _, y_train, _ = train_test_split(
-            X_train_pool,
-            y_train_pool,
-            train_size=iteration_sample_size,
-            stratify=y_train_pool
-        )
-        
+        # Pass full training pool - adaptive sampling will be done in train_single_candidate
+        # based on classifier complexity (2.5-27.5% of data)
         batch_jobs.append((
             current_iter,
-            X_train,
-            y_train,
+            X_train_pool,
+            y_train_pool,
             X_val_s1,
             y_val_s1,
             base_preprocessor,

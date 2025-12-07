@@ -781,8 +781,7 @@ def compute_pipeline_hash(pipeline: Pipeline, metadata: Dict[str, Any]) -> str:
     config_str = json.dumps({
         'transformers': metadata.get('transformers_used', []),
         'classifier': metadata.get('classifier_type', ''),
-        'use_pca': metadata.get('use_pca', False),
-        'n_pca_components': metadata.get('n_pca_components'),
+        'dim_reduction': metadata.get('dim_reduction'),
         'row_sample_pct': round(metadata.get('row_sample_pct', 0), 4),
         'col_sample_pct': round(metadata.get('col_sample_pct', 0), 4)
     }, sort_keys=True)
@@ -859,8 +858,8 @@ def log_iteration(
             'num_models': ensemble_size,
             'classifier_type': metadata.get('classifier_type', ''),
             'transformers_used': transformers_used,
-            'use_pca': 1 if metadata.get('use_pca', False) else 0,
-            'pca_components': metadata.get('n_pca_components'),
+            'use_pca': 1 if metadata.get('dim_reduction') is not None else 0,
+            'pca_components': metadata.get('dim_reduction'),
             'pipeline_hash': pipeline_hash,
             'training_memory_mb': training_memory_mb,
             'stage2_memory_mb': stage2_memory_mb,
