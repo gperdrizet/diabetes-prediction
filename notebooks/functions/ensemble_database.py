@@ -18,8 +18,8 @@ from datetime import datetime
 from typing import Optional, Dict, List
 import pandas as pd
 
-# Hardcoded database path
-DB_PATH = '/workspaces/diabetes-prediction/data/ensemble_training.db'
+# Database path - use relative path from project root
+DB_PATH = '/mnt/arkk/kaggle/diabetes-prediction/data/ensemble_training.db'
 
 def reset_database() -> None:
     """Delete the database file if it exists to start fresh.

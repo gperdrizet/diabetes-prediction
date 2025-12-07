@@ -5,17 +5,16 @@ ipykernel
 matplotlib
 numpy==1.26.4
 pandas==2.2.3
-scikit-learn==1.2.2
-tensorflow==2.18.0
 psutil
+scikit-learn==1.5.2  # Updated for Python 3.12 (1.2.2 lacks pre-built wheels)
+tensorflow==2.18.0
 
-# Note: version pins reflect default Kaggle environment as of December 2025
+# Note: scikit-learn 1.5.2 for Python 3.12 compatibility (Kaggle uses 1.2.2)
+# All other versions match Kaggle environment as of December 2025
 
 ##############################################################
 # Progress dashboard requirements ############################
 ##############################################################
 streamlit>=1.28.0
 streamlit-autorefresh>=0.0.1
-pandas>=1.5.0
-numpy>=1.23.0
 plotly>=5.14.0

@@ -29,10 +29,12 @@ def train_single_candidate(args):
     """
     Train a single candidate pipeline in a separate process.
     
+    NOTE: Training data is pre-sampled in main process to minimize serialization overhead.
+    
     Parameters
     ----------
     args : tuple
-        (iteration, X_train_pool, y_train_pool, X_val_s1, y_val_s1, base_preprocessor, random_state)
+        (iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs)
     
     Returns
     -------
@@ -44,7 +46,7 @@ def train_single_candidate(args):
         - pipeline_hash: unique pipeline hash
         - training_time: time to train (seconds)
     """
-    iteration, X_train_pool, y_train_pool, X_val_s1, y_val_s1, base_preprocessor, random_state = args
+    iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs = args
     
     # Set 5 minute timeout for training
     signal.signal(signal.SIGALRM, timeout_handler)
@@ -55,29 +57,16 @@ def train_single_candidate(args):
         process = psutil.Process(os.getpid())
         start_memory = process.memory_info().rss / (1024 ** 2)  # MB
         
-        # Generate random pipeline (includes adaptive row_sample_pct in metadata)
+        # Generate random pipeline with allocated CPU cores
         pipeline, metadata = generate_random_pipeline(
             iteration=iteration,
             random_state=random_state,
-            base_preprocessor=base_preprocessor
+            base_preprocessor=base_preprocessor,
+            n_jobs=n_jobs
         )
         
-        # Apply adaptive row sampling based on metadata
-        row_sample_pct = metadata['row_sample_pct']
-        n_total = len(X_train_pool)
-        n_sample = max(100, int(n_total * row_sample_pct))  # At least 100 samples
-        
-        # Sample from training pool
-        X_train, _, y_train, _ = train_test_split(
-            X_train_pool,
-            y_train_pool,
-            train_size=n_sample,
-            stratify=y_train_pool,
-            random_state=random_state
-        )
-        
-        # Train pipeline
-        fitted_pipeline = pipeline.fit(X_train, y_train)
+        # Train pipeline on pre-sampled data
+        fitted_pipeline = pipeline.fit(X_train_sample, y_train_sample)
         
         # Track peak memory
         peak_memory = process.memory_info().rss / (1024 ** 2)  # MB
@@ -123,9 +112,15 @@ def train_single_candidate(args):
 
 
 def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, y_train_pool,
-                           X_val_s1, y_val_s1, base_preprocessor, random_state):
+                           X_val_s1, y_val_s1, base_preprocessor, random_state, total_cpus=None):
     """
     Prepare a batch of training jobs for parallel execution.
+    
+    OPTIMIZATION: Pre-samples training data in main process to minimize serialization.
+    Each worker receives only the subset of data it needs, not the full pool.
+    
+    CPU ALLOCATION: Intelligently distributes available cores across models in the batch.
+    Slower parallelizable models (RandomForest, KNN, ExtraTrees) get more cores.
     
     Parameters
     ----------
@@ -136,35 +131,136 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
     max_iterations : int
         Maximum total iterations
     X_train_pool, y_train_pool : arrays
-        Training pool data
+        Training pool data (will be converted to numpy if needed)
     X_val_s1, y_val_s1 : arrays
-        Stage 1 validation data
+        Stage 1 validation data (will be converted to numpy if needed)
     base_preprocessor : ColumnTransformer
         Base preprocessor for features
     random_state : int
         Base random state
+    total_cpus : int, optional
+        Total CPUs available for allocation. If None, uses all available cores.
     
     Returns
     -------
     list
-        List of tuples for parallel training
+        List of tuples for parallel training, each containing pre-sampled training data
+        and allocated CPU cores
     """
-    batch_jobs = []
+    # Determine total CPUs available
+    if total_cpus is None:
+        import multiprocessing
+        total_cpus = multiprocessing.cpu_count()
+    
+    # Convert DataFrames to numpy arrays to avoid pickling overhead
+    # This is CRITICAL for ProcessPoolExecutor performance
+    if hasattr(X_train_pool, 'values'):
+        X_train_pool = X_train_pool.values
+    if hasattr(y_train_pool, 'values'):
+        y_train_pool = y_train_pool.values
+    if hasattr(X_val_s1, 'values'):
+        X_val_s1 = X_val_s1.values
+    if hasattr(y_val_s1, 'values'):
+        y_val_s1 = y_val_s1.values
+    
+    # Peek at what classifiers will be generated to allocate cores intelligently
+    # Classifiers that benefit from parallelization (higher priority):
+    # - random_forest, knn, extra_trees: significant speedup with more cores
+    # - gradient_boosting: moderate speedup (but limited parallelization)
+    # - logistic, linear_svc, sgd, mlp, adaboost, naive_bayes, lda, qda, ridge: no parallelization benefit
+    
+    classifier_types = []
     for i in range(batch_size):
         current_iter = iteration + i
         if current_iter >= max_iterations:
             break
         
-        # Pass full training pool - adaptive sampling will be done in train_single_candidate
-        # based on classifier complexity (2.5-27.5% of data)
-        batch_jobs.append((
-            current_iter,
+        # Determine classifier type for this iteration
+        rng = np.random.RandomState(random_state + current_iter)
+        classifier_pool = [
+            'logistic', 'random_forest', 'gradient_boosting', 'linear_svc',
+            'sgd_classifier', 'mlp', 'knn', 'extra_trees', 'adaboost',
+            'naive_bayes', 'lda', 'qda', 'ridge'
+        ]
+        classifier_type = rng.choice(classifier_pool)
+        classifier_types.append(classifier_type)
+    
+    # Allocate CPU cores based on classifier types
+    # Priority: high-parallelizable > medium > no-parallelization
+    high_parallel = ['random_forest', 'extra_trees', 'knn']  # Best speedup
+    medium_parallel = ['gradient_boosting']  # Some speedup
+    
+    n_high = sum(1 for ct in classifier_types if ct in high_parallel)
+    n_medium = sum(1 for ct in classifier_types if ct in medium_parallel)
+    n_low = len(classifier_types) - n_high - n_medium
+    
+    # Allocate cores intelligently:
+    # - If we have fewer CPUs than jobs, give 1 core to each (sequential training)
+    # - Otherwise, give 1 core baseline + distribute extra to parallelizable models
+    
+    if total_cpus < len(classifier_types):
+        # Not enough cores for all jobs to run in parallel - each gets 1 core
+        cores_per_job = [1] * len(classifier_types)
+    else:
+        # Start with 1 core per job as baseline
+        cores_per_job = [1] * len(classifier_types)
+        
+        # We have extra cores to distribute
+        extra_cores = total_cpus - len(classifier_types)
+        
+        if extra_cores > 0 and n_high > 0:
+            # Give most extra cores to high-parallelizable models
+            cores_for_high = max(1, int(extra_cores * 0.7))
+            cores_per_high_model = cores_for_high // n_high
+            
+            for i, ct in enumerate(classifier_types):
+                if ct in high_parallel:
+                    cores_per_job[i] += cores_per_high_model
+            
+            extra_cores -= cores_for_high
+        
+        if extra_cores > 0 and n_medium > 0:
+            # Give remaining cores to medium-parallelizable models
+            cores_per_medium_model = extra_cores // n_medium
+            
+            for i, ct in enumerate(classifier_types):
+                if ct in medium_parallel:
+                    cores_per_job[i] += cores_per_medium_model
+    
+    batch_jobs = []
+    for i in range(len(classifier_types)):
+        current_iter = iteration + i
+        if current_iter >= max_iterations:
+            break
+        
+        # Generate pipeline metadata to determine sample size
+        # Use same logic as generate_random_pipeline for row_sample_pct
+        rng = np.random.RandomState(random_state + current_iter)
+        
+        # Sample based on typical adaptive sampling range (2.5% - 27.5%)
+        row_sample_pct = rng.uniform(0.025, 0.275)
+        n_total = len(X_train_pool)
+        n_sample = max(100, int(n_total * row_sample_pct))
+        
+        # Pre-sample training data in main process
+        X_train_sample, _, y_train_sample, _ = train_test_split(
             X_train_pool,
             y_train_pool,
+            train_size=n_sample,
+            stratify=y_train_pool,
+            random_state=random_state + current_iter
+        )
+        
+        # Pass only the sampled data (much smaller!) + allocated CPU cores
+        batch_jobs.append((
+            current_iter,
+            X_train_sample,  # Only the subset needed for this model
+            y_train_sample,  # Only the subset needed for this model
             X_val_s1,
             y_val_s1,
             base_preprocessor,
-            random_state + current_iter
+            random_state + current_iter,
+            cores_per_job[i]  # Allocated CPU cores for this model
         ))
     
     return batch_jobs

@@ -134,7 +134,10 @@ def create_base_preprocessor(numerical_features, ordinal_features, nominal_featu
 def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1, y_val_s2,
                         base_preprocessor, random_state, base_temperature, ensemble_dir):
     """
-    Train the founder model for the ensemble.
+    Train the founder model to establish baseline score.
+    
+    NOTE: The founder is NOT added to the ensemble - it only establishes
+    the initial best score for hill climbing. This simplifies batch indexing.
     
     Parameters
     ----------
@@ -155,12 +158,10 @@ def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1
     
     Returns
     -------
-    tuple : (fitted_pipeline, founder_auc)
-        - fitted_pipeline: trained founder model
-        - founder_auc: AUC on stage 2 validation set
+    float : Founder AUC on stage 2 validation set (baseline score)
     """
     print("=" * 80)
-    print("INITIALIZING FOUNDER MODEL")
+    print("TRAINING FOUNDER MODEL (baseline only - NOT added to ensemble)")
     print("=" * 80)
     
     # Random sample size for founder training
@@ -213,7 +214,7 @@ def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1
     print(f"  Stage 1 validation AUC: {val_auc_s1:.6f}")
     print(f"  Stage 2 validation AUC: {founder_auc:.6f}")
     
-    # Save founder model
+    # Save founder model for reference
     model_path = ensemble_dir / 'founder_model.joblib'
     joblib.dump(fitted_pipeline, model_path)
     
@@ -222,11 +223,11 @@ def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1
     log_iteration(
         iteration=0,
         accepted=True,
-        rejection_reason='founder',
+        rejection_reason='founder_baseline',
         pipeline_hash=pipeline_hash,
         stage1_val_auc=val_auc_s1,
         stage2_val_auc=founder_auc,
-        ensemble_size=1,
+        ensemble_size=0,  # NOT included in ensemble
         diversity_score=0.0,
         temperature=base_temperature,
         metadata=metadata,
@@ -234,7 +235,8 @@ def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1
     )
     
     print(f"\n{'=' * 80}")
-    print("FOUNDER MODEL COMPLETE")
+    print("FOUNDER MODEL COMPLETE - Baseline score established")
     print(f"{'=' * 80}")
     
-    return fitted_pipeline, founder_auc
+    # Return only the score, not the model
+    return founder_auc

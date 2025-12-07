@@ -52,7 +52,8 @@ from logistic_regression_transformers import ConstantFeatureRemover
 def generate_random_pipeline(
     iteration: int,
     random_state: int,
-    base_preprocessor: Any
+    base_preprocessor: Any,
+    n_jobs: int = 1
 ) -> Tuple[Pipeline, Dict[str, Any]]:
     """Generate a random stage 1 pipeline with diverse feature engineering.
     
@@ -64,6 +65,9 @@ def generate_random_pipeline(
         Random state for reproducibility and diversity.
     base_preprocessor : sklearn transformer
         Base preprocessing pipeline (column transformer for encoding).
+    n_jobs : int, optional
+        Number of CPU cores to allocate to this model (default: 1).
+        Used for parallelizable classifiers like RandomForest, KNN, ExtraTrees.
     
     Returns
     -------
@@ -382,8 +386,7 @@ def generate_random_pipeline(
         min_samples_split = int(10 ** rng.uniform(0.3, 1.3))  # 2 to 20
         min_samples_leaf = int(10 ** rng.uniform(0, 1))  # 1 to 10
         max_features = rng.choice(['sqrt', 'log2', None])
-        # Adaptive n_jobs: with 24 cores and 10 parallel jobs, give RF 2-3 cores
-        n_jobs = rng.choice([2, 3])
+        # Use allocated cores for parallel tree building
         classifier = RandomForestClassifier(
             n_estimators=n_estimators,
             max_depth=max_depth,
@@ -391,7 +394,7 @@ def generate_random_pipeline(
             min_samples_leaf=min_samples_leaf,
             max_features=max_features,
             class_weight='balanced',
-            n_jobs=n_jobs
+            n_jobs=n_jobs if n_jobs > 1 else 1
             # No random_state for diversity
         )
     
@@ -467,14 +470,13 @@ def generate_random_pipeline(
         weights = rng.choice(['uniform', 'distance'])
         p = rng.choice([1, 2])  # Manhattan or Euclidean
         leaf_size = int(10 ** rng.uniform(1, 2))  # 10 to 100
-        # Adaptive n_jobs: kNN is slow, give it 2-4 cores for distance calculations
-        n_jobs = rng.choice([2, 3, 4])
+        # Use allocated cores for distance calculations
         classifier = KNeighborsClassifier(
             n_neighbors=n_neighbors,
             weights=weights,
             p=p,
             leaf_size=leaf_size,
-            n_jobs=n_jobs
+            n_jobs=n_jobs if n_jobs > 1 else 1
         )
     
     elif classifier_type == 'extra_trees':
@@ -483,8 +485,7 @@ def generate_random_pipeline(
         min_samples_split = int(10 ** rng.uniform(0.3, 1.3))  # 2 to 20
         min_samples_leaf = int(10 ** rng.uniform(0, 1))  # 1 to 10
         max_features = rng.choice(['sqrt', 'log2', None])
-        # Adaptive n_jobs: with 24 cores and 10 parallel jobs, give ExtraTrees 2-3 cores
-        n_jobs = rng.choice([2, 3])
+        # Use allocated cores for parallel tree building
         classifier = ExtraTreesClassifier(
             n_estimators=n_estimators,
             max_depth=max_depth,
@@ -492,7 +493,7 @@ def generate_random_pipeline(
             min_samples_leaf=min_samples_leaf,
             max_features=max_features,
             class_weight='balanced',
-            n_jobs=n_jobs
+            n_jobs=n_jobs if n_jobs > 1 else 1
             # No random_state for diversity
         )
     

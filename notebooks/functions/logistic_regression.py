@@ -331,12 +331,18 @@ def calculate_optimal_iterations(
     feature = ((s/1000) ** 2) * n
     predicted_runtime = runtime_model.predict([[feature]])[0]
     
+    # Calculate hours and minutes
+    hours = int(predicted_runtime // 3600)
+    minutes = int((predicted_runtime % 3600) // 60)
+    
     return n, {
         'runtime_limit_seconds': t,
         'sample_size': s,
         'optimal_n_iter': n,
         'predicted_runtime_seconds': predicted_runtime,
         'predicted_runtime_minutes': predicted_runtime / 60,
+        'predicted_runtime_hours': hours,
+        'predicted_runtime_remaining_minutes': minutes,
     }
 
 
