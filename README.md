@@ -140,7 +140,7 @@ Access at `http://localhost:8501` after starting with streamlit.
 
 The ensemble generates diverse pipelines by randomly combining:
 
-**13 Classifier types:**
+**12 Classifier types:**
 1. **Logistic Regression**: Fast linear baseline with L2/no penalty
 2. **Random Forest**: Ensemble of decision trees (10-100 estimators)
 3. **Gradient Boosting**: Sequential boosting with HistGradientBoosting
@@ -151,9 +151,8 @@ The ensemble generates diverse pipelines by randomly combining:
 8. **Extra Trees**: Extremely randomized trees ensemble
 9. **AdaBoost**: Adaptive boosting ensemble
 10. **Naive Bayes**: Probabilistic classifier (Gaussian/Multinomial/Bernoulli variants)
-11. **Gaussian Process**: Kernel-based probabilistic model (RBF/Matern/RationalQuadratic/DotProduct)
-12. **Linear Discriminant Analysis (LDA)**: Gaussian with shared covariance
-13. **Quadratic Discriminant Analysis (QDA)**: Gaussian with separate covariances
+11. **Linear Discriminant Analysis (LDA)**: Gaussian with shared covariance
+12. **Quadratic Discriminant Analysis (QDA)**: Gaussian with separate covariances
 
 **17 Feature engineering transformers:**
 1. **Ratio**: Feature pairwise ratios (5-30 features)
@@ -191,7 +190,7 @@ Each pipeline randomly selects:
 ### Performance optimization strategies
 
 **Adaptive row sampling by classifier complexity:**
-- **Very slow** (GaussianProcess, kNN): 2.5-12.5% of data (early), 2.5-7.5% (late) → ~6-8x speedup
+- **Very slow** (kNN): 2.5-12.5% of data (early), 2.5-7.5% (late) → ~6-8x speedup
 - **Moderately slow** (MLP, AdaBoost): 5-20% of data (early), 5-12.5% (late) → ~4-5x speedup
 - **Moderate** (RandomForest, ExtraTrees, GradientBoosting): 7.5-22.5% (early), 7.5-15% (late) → ~3-4x speedup
 - **Fast** (Logistic, LinearSVC, SGD, NaiveBayes, LDA, QDA): 10-27.5% (early), 10-17.5% (late) → ~2-3x speedup
@@ -199,7 +198,6 @@ Each pipeline randomly selects:
 **Note**: Row sampling was reduced by 50% across all categories to achieve 2x additional speedup while maintaining diversity through smaller, more varied samples.
 
 **Adaptive CPU core allocation (n_jobs):**
-- **GaussianProcess**: 3-5 cores (very slow O(n³), maximize parallelization)
 - **kNN**: 2-4 cores (expensive distance calculations)
 - **RandomForest/ExtraTrees**: 2-3 cores (independent tree building)
 - **All other models**: 1 core (fast solvers or sequential algorithms)

@@ -25,8 +25,6 @@ from sklearn.ensemble import (
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 from sklearn.naive_bayes import GaussianNB, MultinomialNB, BernoulliNB
-from sklearn.gaussian_process import GaussianProcessClassifier
-from sklearn.gaussian_process.kernels import RBF, Matern, RationalQuadratic, DotProduct, WhiteKernel
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
@@ -324,7 +322,6 @@ def generate_random_pipeline(
         'extra_trees',
         'adaboost',
         'naive_bayes',
-        'gaussian_process',
         'lda',
         'qda'
     ]
