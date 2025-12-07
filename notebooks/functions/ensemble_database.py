@@ -70,7 +70,9 @@ def init_database() -> None:
             transformers_used TEXT,
             use_pca INTEGER,
             pca_components REAL,
-            pipeline_hash TEXT NOT NULL
+            pipeline_hash TEXT NOT NULL,
+            training_memory_mb REAL,
+            stage2_memory_mb REAL
         )
     ''')
     
@@ -131,8 +133,8 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
                 timestamp, iteration_num, ensemble_id, stage1_val_auc, stage2_val_auc,
                 diversity_score, temperature, accepted, rejection_reason,
                 num_models, classifier_type, transformers_used, use_pca, pca_components,
-                pipeline_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pipeline_hash, training_memory_mb, stage2_memory_mb
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             iteration_data['timestamp'],
             iteration_data['iteration_num'],
@@ -148,7 +150,9 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
             iteration_data.get('transformers_used', ''),
             iteration_data.get('use_pca', 0),
             iteration_data.get('pca_components'),
-            iteration_data['pipeline_hash']
+            iteration_data['pipeline_hash'],
+            iteration_data.get('training_memory_mb'),
+            iteration_data.get('stage2_memory_mb')
         ))
         conn.commit()
     finally:

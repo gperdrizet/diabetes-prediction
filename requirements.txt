@@ -4,5 +4,6 @@ numpy==1.26.4
 pandas==2.2.3
 scikit-learn==1.2.2
 tensorflow==2.18.0
+psutil
 
 # Note: version pins reflect default Kaggle environment as of December 2025

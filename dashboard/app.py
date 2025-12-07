@@ -146,6 +146,31 @@ with col6:
 
 st.markdown("---")
 
+# Memory usage metrics (if available)
+if 'training_memory_mb' in ensemble_df.columns and not ensemble_df['training_memory_mb'].isna().all():
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        avg_training_mem = ensemble_df['training_memory_mb'].mean()
+        st.metric("Avg Training Memory", f"{avg_training_mem:.1f} MB")
+    
+    with col2:
+        max_training_mem = ensemble_df['training_memory_mb'].max()
+        st.metric("Peak Training Memory", f"{max_training_mem:.1f} MB")
+    
+    with col3:
+        if 'stage2_memory_mb' in ensemble_df.columns:
+            stage2_mem = ensemble_df['stage2_memory_mb'].dropna()
+            if not stage2_mem.empty:
+                avg_stage2_mem = stage2_mem.mean()
+                st.metric("Avg Stage 2 Memory", f"{avg_stage2_mem:.1f} MB")
+            else:
+                st.metric("Avg Stage 2 Memory", "N/A")
+        else:
+            st.metric("Avg Stage 2 Memory", "N/A")
+    
+    st.markdown("---")
+
 # Acceptance rate metric
 accept_rate = (stats['accepted_count'] / stats['total_iterations'] * 100) if stats['total_iterations'] > 0 else 0
 st.progress(accept_rate / 100, text=f"Acceptance Rate: {accept_rate:.1f}% ({stats['accepted_count']} accepted / {stats['rejected_count']} rejected)")
@@ -153,7 +178,7 @@ st.progress(accept_rate / 100, text=f"Acceptance Rate: {accept_rate:.1f}% ({stat
 st.markdown("---")
 
 # Tabbed interface
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Performance", "🔀 Diversity", "🧩 Composition", "🧠 Stage 2 DNN"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Performance", "🔀 Diversity", "🧩 Composition", "🧠 Stage 2 DNN", "💾 Memory Usage"])
 
 # ====================
 # PERFORMANCE TAB
@@ -498,6 +523,157 @@ with tab4:
                 st.plotly_chart(fig_growth, width="stretch")
     else:
         st.info("⏳ No Stage 2 training data yet. DNN training starts at 10 accepted models.")
+
+# ====================
+# MEMORY USAGE TAB
+# ====================
+with tab5:
+    st.subheader("Memory Usage Analysis")
+    
+    if 'training_memory_mb' in ensemble_df.columns and not ensemble_df['training_memory_mb'].isna().all():
+        # Training memory over iterations
+        st.markdown("### Pipeline Training Memory")
+        
+        fig_train_mem = go.Figure()
+        
+        # Add memory trace
+        fig_train_mem.add_trace(go.Scatter(
+            x=ensemble_df['iteration_num'],
+            y=ensemble_df['training_memory_mb'],
+            mode='markers',
+            marker=dict(
+                size=6,
+                color=ensemble_df['accepted'].map({1: 'green', 0: 'red'}),
+                symbol=ensemble_df['accepted'].map({1: 'circle', 0: 'x'})
+            ),
+            name='Training Memory',
+            text=ensemble_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['training_memory_mb']:.1f} MB ({row['classifier_type']})", axis=1),
+            hovertemplate='%{text}<extra></extra>'
+        ))
+        
+        # Add average line
+        avg_mem = ensemble_df['training_memory_mb'].mean()
+        fig_train_mem.add_hline(
+            y=avg_mem,
+            line_dash="dash",
+            line_color="blue",
+            annotation_text=f"Average: {avg_mem:.1f} MB",
+            annotation_position="right"
+        )
+        
+        fig_train_mem.update_layout(
+            title="Pipeline Training Memory Usage",
+            xaxis_title="Iteration Number",
+            yaxis_title="Memory Usage (MB)",
+            showlegend=True,
+            height=400
+        )
+        
+        st.plotly_chart(fig_train_mem, width="stretch")
+        
+        # Memory by classifier type
+        st.markdown("### Memory Usage by Classifier Type")
+        
+        classifier_memory = ensemble_df.groupby('classifier_type')['training_memory_mb'].agg(['mean', 'max', 'count'])
+        classifier_memory = classifier_memory.sort_values('mean', ascending=False)
+        
+        fig_classifier_mem = go.Figure(data=[
+            go.Bar(
+                x=classifier_memory.index,
+                y=classifier_memory['mean'],
+                name='Average Memory',
+                error_y=dict(
+                    type='data',
+                    array=classifier_memory['max'] - classifier_memory['mean'],
+                    visible=True
+                ),
+                text=classifier_memory['count'].apply(lambda x: f"n={x}"),
+                textposition='outside'
+            )
+        ])
+        
+        fig_classifier_mem.update_layout(
+            title="Average Memory Usage by Classifier Type",
+            xaxis_title="Classifier Type",
+            yaxis_title="Memory Usage (MB)",
+            showlegend=False,
+            height=400
+        )
+        
+        st.plotly_chart(fig_classifier_mem, width="stretch")
+        
+        # Stage 2 memory (if available)
+        if 'stage2_memory_mb' in ensemble_df.columns:
+            stage2_mem_df = ensemble_df[ensemble_df['stage2_memory_mb'].notna()].copy()
+            
+            if not stage2_mem_df.empty:
+                st.markdown("### Stage 2 DNN Training Memory")
+                
+                fig_stage2_mem = go.Figure()
+                
+                fig_stage2_mem.add_trace(go.Bar(
+                    x=stage2_mem_df['iteration_num'],
+                    y=stage2_mem_df['stage2_memory_mb'],
+                    name='Stage 2 Memory',
+                    text=stage2_mem_df['stage2_memory_mb'].apply(lambda x: f"{x:.1f} MB"),
+                    textposition='outside',
+                    marker_color='purple'
+                ))
+                
+                fig_stage2_mem.update_layout(
+                    title="Stage 2 DNN Training Memory Usage",
+                    xaxis_title="Iteration Number (DNN Retraining Events)",
+                    yaxis_title="Memory Usage (MB)",
+                    showlegend=False,
+                    height=400
+                )
+                
+                st.plotly_chart(fig_stage2_mem, width="stretch")
+                
+                # Summary statistics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Min Stage 2 Memory", f"{stage2_mem_df['stage2_memory_mb'].min():.1f} MB")
+                with col2:
+                    st.metric("Avg Stage 2 Memory", f"{stage2_mem_df['stage2_memory_mb'].mean():.1f} MB")
+                with col3:
+                    st.metric("Max Stage 2 Memory", f"{stage2_mem_df['stage2_memory_mb'].max():.1f} MB")
+        
+        # Memory efficiency analysis
+        st.markdown("### Memory Efficiency")
+        
+        # Calculate memory per AUC point gained
+        accepted_df = ensemble_df[ensemble_df['accepted'] == 1].copy()
+        if len(accepted_df) > 1:
+            accepted_df['auc_improvement'] = accepted_df['stage2_val_auc'].diff()
+            accepted_df['memory_efficiency'] = accepted_df['training_memory_mb'] / (accepted_df['auc_improvement'] * 10000)
+            
+            # Remove inf and nan values
+            efficiency_df = accepted_df[accepted_df['memory_efficiency'].notna() & ~np.isinf(accepted_df['memory_efficiency'])]
+            
+            if not efficiency_df.empty:
+                fig_efficiency = go.Figure()
+                
+                fig_efficiency.add_trace(go.Scatter(
+                    x=efficiency_df['iteration_num'],
+                    y=efficiency_df['memory_efficiency'],
+                    mode='lines+markers',
+                    name='Memory Efficiency',
+                    line=dict(color='orange'),
+                    text=efficiency_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['memory_efficiency']:.2f} MB per 0.01% AUC", axis=1),
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+                
+                fig_efficiency.update_layout(
+                    title="Memory Efficiency (Lower is Better)",
+                    xaxis_title="Iteration Number",
+                    yaxis_title="MB per 0.01% AUC Improvement",
+                    height=400
+                )
+                
+                st.plotly_chart(fig_efficiency, width="stretch")
+    else:
+        st.info("⏳ Memory tracking data not available. This feature requires running with the updated training code.")
 
 # ====================
 # SIDEBAR

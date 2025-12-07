@@ -5,6 +5,8 @@ Handles batch training of candidate models and helper functions.
 """
 
 import time
+import psutil
+import os
 import numpy as np
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -34,6 +36,8 @@ def train_single_candidate(args):
     iteration, X_train, y_train, X_val_s1, y_val_s1, base_preprocessor, random_state = args
     
     start_time = time.time()
+    process = psutil.Process(os.getpid())
+    start_memory = process.memory_info().rss / (1024 ** 2)  # MB
     
     # Generate random pipeline
     pipeline, metadata = generate_random_pipeline(
@@ -44,6 +48,10 @@ def train_single_candidate(args):
     
     # Train pipeline
     fitted_pipeline = pipeline.fit(X_train, y_train)
+    
+    # Track peak memory
+    peak_memory = process.memory_info().rss / (1024 ** 2)  # MB
+    memory_used = peak_memory - start_memory
     
     # Evaluate on stage 1 validation
     if hasattr(fitted_pipeline, 'predict_proba'):
@@ -64,7 +72,8 @@ def train_single_candidate(args):
         'metadata': metadata,
         'val_auc_s1': val_auc_s1,
         'pipeline_hash': pipeline_hash,
-        'training_time': training_time
+        'training_time': training_time,
+        'memory_mb': memory_used
     }
 
 
