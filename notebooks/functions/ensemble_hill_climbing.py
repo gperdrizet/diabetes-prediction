@@ -170,88 +170,119 @@ def generate_random_pipeline(
     
     classifier_type = rng.choice(classifier_options)
     
-    # Create classifier with random hyperparameters
+    # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
-        C = 10 ** rng.uniform(-3, 2)
+        C = 10 ** rng.uniform(-4, 3)  # 0.0001 to 1000
         penalty = rng.choice(['l2', None])
+        solver = 'saga' if penalty is None else 'lbfgs'
         classifier = LogisticRegression(
             C=C,
             penalty=penalty,
-            max_iter=1000,
+            solver=solver,
+            max_iter=2000,
             class_weight='balanced'
             # No random_state for diversity
         )
     
     elif classifier_type == 'random_forest':
-        n_estimators = rng.choice([50, 100, 200])
-        max_depth = rng.choice([5, 10, 15, 20, None])
-        min_samples_split = rng.randint(2, 11)
+        n_estimators = int(10 ** rng.uniform(1.5, 2.5))  # ~30 to 300
+        max_depth = rng.choice([3, 5, 7, 10, 15, 20, 30, None])
+        min_samples_split = int(10 ** rng.uniform(0.3, 1.3))  # 2 to 20
+        min_samples_leaf = int(10 ** rng.uniform(0, 1))  # 1 to 10
+        max_features = rng.choice(['sqrt', 'log2', None])
         classifier = RandomForestClassifier(
             n_estimators=n_estimators,
             max_depth=max_depth,
             min_samples_split=min_samples_split,
+            min_samples_leaf=min_samples_leaf,
+            max_features=max_features,
             class_weight='balanced',
             n_jobs=1
             # No random_state for diversity
         )
     
     elif classifier_type == 'gradient_boosting':
-        max_iter = rng.choice([50, 100, 200])
-        learning_rate = 10 ** rng.uniform(-2, 0)
-        max_depth = rng.choice([None, 5, 10, 15, 20])
-        l2_regularization = 10 ** rng.uniform(-3, 1)
+        max_iter = int(10 ** rng.uniform(1.5, 2.5))  # ~30 to 300
+        learning_rate = 10 ** rng.uniform(-2.5, 0)  # 0.003 to 1.0
+        max_depth = rng.choice([None, 3, 5, 7, 10, 15, 20, 30])
+        l2_regularization = 10 ** rng.uniform(-4, 1)  # 0.0001 to 10
+        min_samples_leaf = int(10 ** rng.uniform(1, 2))  # 10 to 100
+        max_bins = rng.choice([32, 64, 128, 255])
         classifier = HistGradientBoostingClassifier(
             max_iter=max_iter,
             learning_rate=learning_rate,
             max_depth=max_depth,
-            l2_regularization=l2_regularization
+            l2_regularization=l2_regularization,
+            min_samples_leaf=min_samples_leaf,
+            max_bins=max_bins
             # No random_state for diversity
         )
     
     elif classifier_type == 'svc':
-        C = 10 ** rng.uniform(-2, 2)
-        kernel = rng.choice(['rbf', 'linear'])
+        C = 10 ** rng.uniform(-3, 3)  # 0.001 to 1000
+        kernel = rng.choice(['rbf', 'linear', 'poly'])
+        gamma = rng.choice(['scale', 'auto']) if kernel in ['rbf', 'poly'] else 'scale'
+        degree = rng.randint(2, 5) if kernel == 'poly' else 3
         classifier = SVC(
             C=C,
             kernel=kernel,
+            gamma=gamma,
+            degree=degree,
             probability=True,
             class_weight='balanced'
             # No random_state for diversity
         )
     
     elif classifier_type == 'mlp':
-        hidden_layer_sizes = tuple(rng.choice([32, 64, 128], size=rng.randint(1, 3)))
-        alpha = 10 ** rng.uniform(-4, -1)
+        n_layers = rng.randint(1, 4)  # 1 to 3 hidden layers
+        layer_sizes = [int(10 ** rng.uniform(1.5, 2.5)) for _ in range(n_layers)]  # ~30 to 300 neurons
+        hidden_layer_sizes = tuple(layer_sizes)
+        alpha = 10 ** rng.uniform(-5, -1)  # 0.00001 to 0.1
+        learning_rate_init = 10 ** rng.uniform(-4, -2)  # 0.0001 to 0.01
+        activation = rng.choice(['relu', 'tanh', 'logistic'])
         classifier = MLPClassifier(
             hidden_layer_sizes=hidden_layer_sizes,
             alpha=alpha,
-            max_iter=500
+            learning_rate_init=learning_rate_init,
+            activation=activation,
+            max_iter=1000,
+            early_stopping=True
             # No random_state for diversity
         )
     
     elif classifier_type == 'knn':
-        n_neighbors = rng.randint(3, 21)
+        n_neighbors = int(10 ** rng.uniform(0.5, 1.5))  # 3 to 30
         weights = rng.choice(['uniform', 'distance'])
+        p = rng.choice([1, 2])  # Manhattan or Euclidean
+        leaf_size = int(10 ** rng.uniform(1, 2))  # 10 to 100
         classifier = KNeighborsClassifier(
             n_neighbors=n_neighbors,
             weights=weights,
+            p=p,
+            leaf_size=leaf_size,
             n_jobs=1
         )
     
     elif classifier_type == 'extra_trees':
-        n_estimators = rng.choice([50, 100, 200])
-        max_depth = rng.choice([5, 10, 15, 20, None])
+        n_estimators = int(10 ** rng.uniform(1.5, 2.5))  # ~30 to 300
+        max_depth = rng.choice([3, 5, 7, 10, 15, 20, 30, None])
+        min_samples_split = int(10 ** rng.uniform(0.3, 1.3))  # 2 to 20
+        min_samples_leaf = int(10 ** rng.uniform(0, 1))  # 1 to 10
+        max_features = rng.choice(['sqrt', 'log2', None])
         classifier = ExtraTreesClassifier(
             n_estimators=n_estimators,
             max_depth=max_depth,
+            min_samples_split=min_samples_split,
+            min_samples_leaf=min_samples_leaf,
+            max_features=max_features,
             class_weight='balanced',
             n_jobs=1
             # No random_state for diversity
         )
     
     elif classifier_type == 'adaboost':
-        n_estimators = rng.choice([50, 100, 200])
-        learning_rate = 10 ** rng.uniform(-1, 0)
+        n_estimators = int(10 ** rng.uniform(1.5, 2.5))  # ~30 to 300
+        learning_rate = 10 ** rng.uniform(-1.5, 0.5)  # 0.03 to 3.0
         classifier = AdaBoostClassifier(
             n_estimators=n_estimators,
             learning_rate=learning_rate
@@ -317,100 +348,61 @@ def quick_optimize_pipeline(
     n_jobs: int = 8,
     random_state: int = 42
 ) -> Tuple[Pipeline, float]:
-    """Perform quick hyperparameter optimization on a pipeline.
+    """Fit pipeline and evaluate with cross-validation (no optimization).
+    
+    This function simply fits the pipeline with its pre-configured hyperparameters
+    and returns the cross-validation score. No hyperparameter optimization is
+    performed to maximize diversity and minimize training time.
     
     Parameters
     ----------
     pipeline : Pipeline
-        sklearn pipeline to optimize.
+        sklearn pipeline to fit.
     X : pd.DataFrame
         Training features.
     y : pd.Series
         Training labels.
     n_iter : int, default=10
-        Number of RandomizedSearchCV iterations.
+        DEPRECATED - Not used. Kept for backwards compatibility.
     cv : int, default=3
         Number of cross-validation folds.
     n_jobs : int, default=8
-        Number of parallel jobs.
+        Number of parallel jobs for cross-validation.
     random_state : int, default=42
-        Random state for reproducibility.
+        DEPRECATED - Not used. Kept for backwards compatibility.
     
     Returns
     -------
-    best_pipeline : Pipeline
-        Optimized pipeline.
-    best_score : float
-        Best cross-validation ROC-AUC score.
+    fitted_pipeline : Pipeline
+        Fitted pipeline (no optimization).
+    cv_score : float
+        Cross-validation ROC-AUC score.
     """
-    # Define simple parameter distributions for quick optimization
-    param_distributions = {}
-    
-    classifier_type = type(pipeline.named_steps['classifier']).__name__
-    
-    if classifier_type == 'LogisticRegression':
-        param_distributions = {
-            'classifier__C': loguniform(0.01, 10)
-        }
-    elif 'Forest' in classifier_type or 'Trees' in classifier_type:
-        param_distributions = {
-            'classifier__max_depth': [5, 10, 15, None],
-            'classifier__min_samples_split': randint(2, 11)
-        }
-    elif classifier_type == 'GradientBoostingClassifier':
-        param_distributions = {
-            'classifier__learning_rate': loguniform(0.01, 0.3),
-            'classifier__max_depth': randint(3, 8)
-        }
-    elif classifier_type == 'SVC':
-        param_distributions = {
-            'classifier__C': loguniform(0.1, 10)
-        }
-    elif classifier_type == 'MLPClassifier':
-        param_distributions = {
-            'classifier__alpha': loguniform(1e-4, 1e-2)
-        }
-    
-    if param_distributions:
-        search = RandomizedSearchCV(
-            pipeline,
-            param_distributions,
-            n_iter=n_iter,
+    try:
+        from sklearn.model_selection import cross_val_score
+        
+        # Just do cross-validation and fit - no optimization
+        scores = cross_val_score(
+            pipeline, X, y,
             cv=cv,
             scoring='roc_auc',
-            n_jobs=n_jobs,
-            random_state=random_state,
-            error_score='raise'
+            n_jobs=n_jobs
         )
         
+        # Fit on full training set
+        pipeline.fit(X, y)
+        
+        return pipeline, scores.mean()
+        
+    except Exception as e:
+        print(f"Cross-validation failed: {e}")
+        # Try to at least fit the pipeline
         try:
-            search.fit(X, y)
-            return search.best_estimator_, search.best_score_
-        except Exception as e:
-            # If optimization fails, fit original pipeline and return with score 0
-            print(f"Optimization failed: {e}")
-            try:
-                pipeline.fit(X, y)
-                return pipeline, 0.0
-            except Exception as e2:
-                # If even basic fitting fails, raise the error
-                print(f"Pipeline fitting also failed: {e2}")
-                raise e2
-    else:
-        # No hyperparameters to optimize, just fit and score
-        try:
-            from sklearn.model_selection import cross_val_score
-            scores = cross_val_score(
-                pipeline, X, y,
-                cv=cv,
-                scoring='roc_auc',
-                n_jobs=n_jobs
-            )
             pipeline.fit(X, y)
-            return pipeline, scores.mean()
-        except Exception as e:
-            print(f"Cross-validation failed: {e}")
             return pipeline, 0.0
+        except Exception as e2:
+            print(f"Pipeline fitting also failed: {e2}")
+            raise e2
 
 
 def adaptive_simulated_annealing_acceptance(
