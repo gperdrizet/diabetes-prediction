@@ -19,7 +19,6 @@ DB_PATH = '/workspaces/diabetes-prediction/data/ensemble_training.db'
 # Page configuration
 st.set_page_config(
     page_title="Ensemble Training Monitor",
-    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -95,12 +94,12 @@ def check_database_exists():
     return Path(DB_PATH).exists()
 
 # Main dashboard
-st.title("🎯 Ensemble Hill Climbing Training Monitor")
+st.title("Ensemble hill climbing training monitor")
 st.markdown("---")
 
 # Check database existence
 if not check_database_exists():
-    st.error(f"❌ Database not found at: `{DB_PATH}`")
+    st.error(f"Database not found at: `{DB_PATH}`")
     st.info("Start the training notebook to create the database.")
     st.stop()
 
@@ -110,7 +109,7 @@ stage2_df = get_stage2_data()
 
 # Check if data exists
 if ensemble_df.empty:
-    st.warning("⚠️ No training data found in database. Waiting for first iteration...")
+    st.warning("No training data found in database. Waiting for first iteration...")
     st.info("The dashboard will auto-refresh every 60 seconds.")
     st.stop()
 
@@ -177,14 +176,23 @@ st.progress(accept_rate / 100, text=f"Acceptance Rate: {accept_rate:.1f}% ({stat
 
 st.markdown("---")
 
-# Tabbed interface
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Performance", "🔀 Diversity", "🧩 Composition", "🧠 Stage 2 DNN", "💾 Memory Usage", "⏱️ Timing"])
+# ====================
+# SIDEBAR
+# ====================
+st.sidebar.title("Navigation")
+
+# Page selection
+page = st.sidebar.radio(
+    "Select page",
+    ["Performance", "Diversity", "Composition", "Stage 2 DNN", "Memory Usage", "Timing"],
+    label_visibility="collapsed"
+)
 
 # ====================
-# PERFORMANCE TAB
+# PERFORMANCE PAGE
 # ====================
-with tab1:
-    st.subheader("Performance Metrics Over Time")
+if page == "Performance":
+    st.subheader("Performance metrics over time")
     
     if not ensemble_df.empty:
         # Stage 2 validation AUC over iterations
@@ -220,9 +228,9 @@ with tab1:
             )
         
         fig_stage2.update_layout(
-            title="Stage 2 Validation AUC (Ensemble Performance)",
-            xaxis_title="Iteration Number",
-            yaxis_title="Stage 2 Validation AUC",
+            title="Stage 2 validation AUC (ensemble performance)",
+            xaxis_title="Iteration number",
+            yaxis_title="Stage 2 validation AUC",
             hovermode='closest',
             height=400
         )
@@ -247,9 +255,9 @@ with tab1:
         ))
         
         fig_stage1.update_layout(
-            title="Stage 1 Validation AUC (Individual Model Performance)",
-            xaxis_title="Iteration Number",
-            yaxis_title="Stage 1 Validation AUC",
+            title="Stage 1 validation AUC (individual model performance)",
+            xaxis_title="Iteration number",
+            yaxis_title="Stage 1 validation AUC",
             hovermode='closest',
             height=400
         )
@@ -264,18 +272,18 @@ with tab1:
             accepted_df,
             x='iteration_num',
             y='cumulative_ensemble_size',
-            title="Ensemble Size Growth",
-            labels={'iteration_num': 'Iteration Number', 'cumulative_ensemble_size': 'Ensemble Size'}
+            title="Ensemble size growth",
+            labels={'iteration_num': 'Iteration number', 'cumulative_ensemble_size': 'Ensemble size'}
         )
         fig_size.update_traces(mode='lines+markers')
         
         st.plotly_chart(fig_size, width="stretch")
 
 # ====================
-# DIVERSITY TAB
+# DIVERSITY PAGE
 # ====================
-with tab2:
-    st.subheader("Diversity Metrics")
+elif page == "Diversity":
+    st.subheader("Diversity metrics")
     
     if not ensemble_df.empty and 'diversity_score' in ensemble_df.columns:
         # Diversity score over iterations
@@ -295,9 +303,9 @@ with tab2:
         ))
         
         fig_div.update_layout(
-            title="Diversity Score Over Iterations",
-            xaxis_title="Iteration Number",
-            yaxis_title="Diversity Score",
+            title="Diversity score over iterations",
+            xaxis_title="Iteration number",
+            yaxis_title="Diversity score",
             hovermode='closest',
             height=400
         )
@@ -311,8 +319,8 @@ with tab2:
             y='diversity_score',
             color='accepted',
             color_discrete_map={1: 'green', 0: 'red'},
-            title="Diversity vs Stage 1 Validation AUC",
-            labels={'stage1_val_auc': 'Stage 1 Validation AUC', 'diversity_score': 'Diversity Score'},
+            title="Diversity vs stage 1 validation AUC",
+            labels={'stage1_val_auc': 'Stage 1 validation AUC', 'diversity_score': 'Diversity score'},
             hover_data=['iteration_num']
         )
         
@@ -326,17 +334,17 @@ with tab2:
             fig_classifiers = px.bar(
                 x=classifier_counts.index,
                 y=classifier_counts.values,
-                title="Classifier Types in Ensemble",
-                labels={'x': 'Classifier Type', 'y': 'Count'}
+                title="Classifier types in ensemble",
+                labels={'x': 'Classifier type', 'y': 'Count'}
             )
             
             st.plotly_chart(fig_classifiers, width="stretch")
 
 # ====================
-# COMPOSITION TAB
+# COMPOSITION PAGE
 # ====================
-with tab3:
-    st.subheader("Ensemble Composition")
+elif page == "Composition":
+    st.subheader("Ensemble composition")
     
     if not ensemble_df.empty:
         accepted_df = ensemble_df[ensemble_df['accepted'] == 1]
@@ -354,7 +362,7 @@ with tab3:
                 fig_trans = px.bar(
                     x=transformer_counts.index,
                     y=transformer_counts.values,
-                    title="Transformer Usage Frequency in Accepted Models",
+                    title="Transformer usage frequency in accepted models",
                     labels={'x': 'Transformer', 'y': 'Count'}
                 )
                 fig_trans.update_xaxes(tickangle=45)
@@ -369,7 +377,7 @@ with tab3:
             fig_pie = px.pie(
                 values=classifier_counts.values,
                 names=classifier_counts.index,
-                title="Classifier Type Distribution"
+                title="Classifier type distribution"
             )
             
             st.plotly_chart(fig_pie, width="stretch")
@@ -393,10 +401,10 @@ with tab3:
                         st.metric("Avg PCA Components", f"{avg_components:.1f}")
 
 # ====================
-# STAGE 2 DNN TAB
+# STAGE 2 DNN PAGE
 # ====================
-with tab4:
-    st.subheader("Stage 2 DNN Training Progress")
+elif page == "Stage 2 DNN":
+    st.subheader("Stage 2 DNN training progress")
     
     if not stage2_df.empty:
         # Get unique ensemble IDs (batches)
@@ -437,7 +445,7 @@ with tab4:
                 ))
                 
                 fig_loss.update_layout(
-                    title="Training Loss",
+                    title="Training loss",
                     xaxis_title="Epoch",
                     yaxis_title="Loss",
                     height=400
@@ -475,7 +483,7 @@ with tab4:
                 st.plotly_chart(fig_auc, width="stretch")
             
             # Batch summary
-            st.markdown("### Batch Summary")
+            st.markdown("### Batch summary")
             final_epoch = batch_data[batch_data['epoch'] == batch_data['epoch'].max()].iloc[0]
             
             col1, col2, col3, col4 = st.columns(4)
@@ -492,14 +500,14 @@ with tab4:
             try:
                 batch_num = int(selected_id.split('_')[-1]) if '_' in selected_id else 0
                 if batch_num > 10:
-                    st.info(f"ℹ️ Transfer Learning: This DNN was initialized from the previous batch ({batch_num-10} models) and expanded to {batch_num} inputs.")
+                    st.info(f"Transfer Learning: This DNN was initialized from the previous batch ({batch_num-10} models) and expanded to {batch_num} inputs.")
             except ValueError:
                 # Handle non-numeric ensemble IDs
                 pass
         
         # Input dimension growth visualization
         if len(ensemble_ids) > 1:
-            st.markdown("### DNN Architecture Growth")
+            st.markdown("### DNN architecture growth")
             
             # Extract batch numbers from ensemble IDs
             batch_numbers = []
@@ -515,24 +523,24 @@ with tab4:
                 fig_growth = px.line(
                     x=range(len(batch_numbers)),
                     y=batch_numbers,
-                    title="DNN Input Dimension Growth (Transfer Learning)",
-                    labels={'x': 'Training Round', 'y': 'Number of Inputs (Ensemble Size)'},
+                    title="DNN input dimension growth (transfer learning)",
+                    labels={'x': 'Training round', 'y': 'Number of inputs (ensemble size)'},
                     markers=True
                 )
                 
                 st.plotly_chart(fig_growth, width="stretch")
     else:
-        st.info("⏳ No Stage 2 training data yet. DNN training starts at 10 accepted models.")
+        st.info("No Stage 2 training data yet. DNN training starts at 10 accepted models.")
 
 # ====================
-# MEMORY USAGE TAB
+# MEMORY USAGE PAGE
 # ====================
-with tab5:
-    st.subheader("Memory Usage Analysis")
+elif page == "Memory Usage":
+    st.subheader("Memory usage analysis")
     
     if 'training_memory_mb' in ensemble_df.columns and not ensemble_df['training_memory_mb'].isna().all():
         # Training memory over iterations
-        st.markdown("### Pipeline Training Memory")
+        st.markdown("### Pipeline training memory")
         
         fig_train_mem = go.Figure()
         
@@ -562,9 +570,9 @@ with tab5:
         )
         
         fig_train_mem.update_layout(
-            title="Pipeline Training Memory Usage",
-            xaxis_title="Iteration Number",
-            yaxis_title="Memory Usage (MB)",
+            title="Pipeline training memory usage",
+            xaxis_title="Iteration number",
+            yaxis_title="Memory usage (MB)",
             showlegend=True,
             height=400
         )
@@ -572,7 +580,7 @@ with tab5:
         st.plotly_chart(fig_train_mem, width="stretch")
         
         # Memory by classifier type
-        st.markdown("### Memory Usage by Classifier Type")
+        st.markdown("### Memory usage by classifier type")
         
         classifier_memory = ensemble_df.groupby('classifier_type')['training_memory_mb'].agg(['mean', 'max', 'count'])
         classifier_memory = classifier_memory.sort_values('mean', ascending=False)
@@ -593,9 +601,9 @@ with tab5:
         ])
         
         fig_classifier_mem.update_layout(
-            title="Average Memory Usage by Classifier Type",
-            xaxis_title="Classifier Type",
-            yaxis_title="Memory Usage (MB)",
+            title="Average memory usage by classifier type",
+            xaxis_title="Classifier type",
+            yaxis_title="Memory usage (MB)",
             showlegend=False,
             height=400
         )
@@ -607,7 +615,7 @@ with tab5:
             stage2_mem_df = ensemble_df[ensemble_df['stage2_memory_mb'].notna()].copy()
             
             if not stage2_mem_df.empty:
-                st.markdown("### Stage 2 DNN Training Memory")
+                st.markdown("### Stage 2 DNN training memory")
                 
                 fig_stage2_mem = go.Figure()
                 
@@ -621,9 +629,9 @@ with tab5:
                 ))
                 
                 fig_stage2_mem.update_layout(
-                    title="Stage 2 DNN Training Memory Usage",
-                    xaxis_title="Iteration Number (DNN Retraining Events)",
-                    yaxis_title="Memory Usage (MB)",
+                    title="Stage 2 DNN training memory usage",
+                    xaxis_title="Iteration number (DNN retraining events)",
+                    yaxis_title="Memory usage (MB)",
                     showlegend=False,
                     height=400
                 )
@@ -640,7 +648,7 @@ with tab5:
                     st.metric("Max Stage 2 Memory", f"{stage2_mem_df['stage2_memory_mb'].max():.1f} MB")
         
         # Memory efficiency analysis
-        st.markdown("### Memory Efficiency")
+        st.markdown("### Memory efficiency")
         
         # Calculate memory per AUC point gained
         accepted_df = ensemble_df[ensemble_df['accepted'] == 1].copy()
@@ -665,84 +673,21 @@ with tab5:
                 ))
                 
                 fig_efficiency.update_layout(
-                    title="Memory Efficiency (Lower is Better)",
-                    xaxis_title="Iteration Number",
-                    yaxis_title="MB per 0.01% AUC Improvement",
+                    title="Memory efficiency (lower is better)",
+                    xaxis_title="Iteration number",
+                    yaxis_title="MB per 0.01% AUC improvement",
                     height=400
                 )
                 
                 st.plotly_chart(fig_efficiency, width="stretch")
     else:
-        st.info("⏳ Memory tracking data not available. This feature requires running with the updated training code.")
+        st.info("Memory tracking data not available. This feature requires running with the updated training code.")
 
 # ====================
-# SIDEBAR
+# TIMING PAGE
 # ====================
-st.sidebar.title("⚙️ Dashboard Controls")
-
-# Auto-refresh status
-st.sidebar.info("🔄 Auto-refresh: Every 60 seconds")
-
-# CSV Export
-st.sidebar.markdown("### 📥 Export Data")
-
-if st.sidebar.button("Download Ensemble Log CSV"):
-    csv = ensemble_df.to_csv(index=False)
-    st.sidebar.download_button(
-        label="💾 Download ensemble_log.csv",
-        data=csv,
-        file_name=f"ensemble_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
-
-if not stage2_df.empty:
-    if st.sidebar.button("Download Stage 2 Log CSV"):
-        csv = stage2_df.to_csv(index=False)
-        st.sidebar.download_button(
-            label="💾 Download stage2_log.csv",
-            data=csv,
-            file_name=f"stage2_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
-        )
-
-# Database Reset
-st.sidebar.markdown("### 🗑️ Database Reset")
-st.sidebar.warning("⚠️ **DESTRUCTIVE OPERATION**")
-st.sidebar.markdown("This will permanently delete all training data!")
-
-reset_confirmation = st.sidebar.text_input(
-    "Type 'DELETE DATABASE' to enable reset:",
-    key="reset_confirm"
-)
-
-if reset_confirmation == "DELETE DATABASE":
-    if st.sidebar.button("🔴 Confirm Reset Database", type="primary"):
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute("DROP TABLE IF EXISTS ensemble_log")
-            cursor.execute("DROP TABLE IF EXISTS stage2_log")
-            conn.commit()
-            conn.close()
-            st.sidebar.success("✅ Database reset complete. Restart training to reinitialize.")
-            st.rerun()
-        except Exception as e:
-            st.sidebar.error(f"❌ Reset failed: {e}")
-else:
-    st.sidebar.button("🔴 Confirm Reset Database", disabled=True)
-
-# Database info
-st.sidebar.markdown("### 📊 Database Info")
-st.sidebar.text(f"Path: {DB_PATH}")
-if check_database_exists():
-    db_size = Path(DB_PATH).stat().st_size / (1024 * 1024)  # MB
-    st.sidebar.text(f"Size: {db_size:.2f} MB")
-
-# ====================
-# TIMING TAB
-# ====================
-with tab6:
-    st.header("⏱️ Timing Analysis")
+elif page == "Timing":
+    st.header("Timing analysis")
     
     if ensemble_df.empty or 'training_time_sec' not in ensemble_df.columns:
         st.info("No timing data available yet. Start training to collect metrics.")
@@ -779,19 +724,19 @@ with tab6:
                     st.metric("Total Stage 2 Time", "N/A")
             
             # Chart 1: Training time over iterations
-            st.subheader("Training Time Over Iterations")
+            st.subheader("Training time over iterations")
             fig_time_iter = px.line(
                 df_time,
                 x='iteration',
                 y='training_time_sec',
-                title='Parallel Training Time per Iteration',
+                title='Parallel training time per iteration',
                 labels={'iteration': 'Iteration', 'training_time_sec': 'Time (seconds)'}
             )
             fig_time_iter.update_traces(mode='lines+markers', marker_color='green')
             st.plotly_chart(fig_time_iter, use_container_width=True)
             
             # Chart 2: Time by classifier type
-            st.subheader("Training Time by Classifier Type")
+            st.subheader("Training time by classifier type")
             time_by_classifier = df_time.groupby('classifier_type').agg({
                 'training_time_sec': ['mean', 'max', 'min', 'count']
             }).reset_index()
@@ -810,8 +755,8 @@ with tab6:
                 )
             ))
             fig_time_classifier.update_layout(
-                title='Training Time by Classifier Type (with min/max range)',
-                xaxis_title='Classifier Type',
+                title='Training time by classifier type (with min/max range)',
+                xaxis_title='Classifier type',
                 yaxis_title='Time (seconds)'
             )
             st.plotly_chart(fig_time_classifier, use_container_width=True)
@@ -820,19 +765,19 @@ with tab6:
             if 'stage2_time_sec' in df_time.columns:
                 df_stage2_time = df_time[df_time['stage2_time_sec'].notna()].copy()
                 if not df_stage2_time.empty:
-                    st.subheader("Stage 2 DNN Training Time")
+                    st.subheader("Stage 2 DNN training time")
                     fig_stage2_time = px.line(
                         df_stage2_time,
                         x='iteration',
                         y='stage2_time_sec',
-                        title='Time for Stage 2 DNN Training',
+                        title='Time for stage 2 DNN training',
                         labels={'iteration': 'Iteration', 'stage2_time_sec': 'Time (seconds)'}
                     )
                     fig_stage2_time.update_traces(mode='lines+markers', marker_color='purple')
                     st.plotly_chart(fig_stage2_time, use_container_width=True)
             
             # Chart 4: Time efficiency (time per AUC improvement)
-            st.subheader("Time Efficiency")
+            st.subheader("Time efficiency")
             if len(df_time) > 1:
                 df_time['auc_improvement'] = df_time['stage2_auc_roc'].diff()
                 df_time['time_per_improvement'] = df_time['training_time_sec'] / df_time['auc_improvement'].abs()
@@ -845,7 +790,7 @@ with tab6:
                         x='iteration',
                         y='time_per_improvement',
                         color='classifier_type',
-                        title='Training Time per AUC Improvement (Lower is Better)',
+                        title='Training time per AUC improvement (lower is better)',
                         labels={'iteration': 'Iteration', 'time_per_improvement': 'Seconds per 0.01% AUC'},
                         hover_data=['training_time_sec', 'stage2_auc_roc']
                     )
