@@ -348,11 +348,11 @@ def quick_optimize_pipeline(
     n_jobs: int = 8,
     random_state: int = 42
 ) -> Tuple[Pipeline, float]:
-    """Fit pipeline and evaluate with cross-validation (no optimization).
+    """Fit pipeline with pre-configured hyperparameters (no optimization, no CV).
     
-    This function simply fits the pipeline with its pre-configured hyperparameters
-    and returns the cross-validation score. No hyperparameter optimization is
-    performed to maximize diversity and minimize training time.
+    This function simply fits the pipeline with its pre-configured hyperparameters.
+    No hyperparameter optimization or cross-validation is performed to maximize
+    diversity and minimize training time.
     
     Parameters
     ----------
@@ -365,44 +365,27 @@ def quick_optimize_pipeline(
     n_iter : int, default=10
         DEPRECATED - Not used. Kept for backwards compatibility.
     cv : int, default=3
-        Number of cross-validation folds.
+        DEPRECATED - Not used. Kept for backwards compatibility.
     n_jobs : int, default=8
-        Number of parallel jobs for cross-validation.
+        DEPRECATED - Not used. Kept for backwards compatibility.
     random_state : int, default=42
         DEPRECATED - Not used. Kept for backwards compatibility.
     
     Returns
     -------
     fitted_pipeline : Pipeline
-        Fitted pipeline (no optimization).
-    cv_score : float
-        Cross-validation ROC-AUC score.
+        Fitted pipeline.
+    dummy_score : float
+        Always returns 0.0 (no CV performed).
     """
     try:
-        from sklearn.model_selection import cross_val_score
-        
-        # Just do cross-validation and fit - no optimization
-        scores = cross_val_score(
-            pipeline, X, y,
-            cv=cv,
-            scoring='roc_auc',
-            n_jobs=n_jobs
-        )
-        
-        # Fit on full training set
+        # Just fit the pipeline - no cross-validation
         pipeline.fit(X, y)
-        
-        return pipeline, scores.mean()
+        return pipeline, 0.0
         
     except Exception as e:
-        print(f"Cross-validation failed: {e}")
-        # Try to at least fit the pipeline
-        try:
-            pipeline.fit(X, y)
-            return pipeline, 0.0
-        except Exception as e2:
-            print(f"Pipeline fitting also failed: {e2}")
-            raise e2
+        print(f"Pipeline fitting failed: {e}")
+        raise e
 
 
 def adaptive_simulated_annealing_acceptance(
