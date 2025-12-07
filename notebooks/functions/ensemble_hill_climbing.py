@@ -387,28 +387,23 @@ def generate_random_pipeline(
     
     # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
-        C = 10 ** rng.uniform(-4, 3)  # 0.0001 to 1000
-        # DIVERSITY BOOST: Expanded penalty options (was just l2/None)
-        penalty = rng.choice(['l1', 'l2', 'elasticnet', None])
-        # DIVERSITY BOOST: Expanded solver options for different penalties
-        if penalty == 'l1':
-            solver = rng.choice(['liblinear', 'saga'])
-        elif penalty == 'l2':
-            solver = rng.choice(['lbfgs', 'liblinear', 'newton-cg', 'sag', 'saga'])
-        elif penalty == 'elasticnet':
-            solver = 'saga'  # Only saga supports elasticnet
-        else:  # penalty is None
-            solver = rng.choice(['lbfgs', 'newton-cg', 'sag', 'saga'])
+        # SPEED FIX: Removed saga solver (too slow), kept fast solvers only
+        C = 10 ** rng.uniform(-3, 2)  # 0.001 to 100
+        penalty = rng.choice(['l1', 'l2', None])
         
-        # ElasticNet requires l1_ratio parameter
-        l1_ratio = rng.uniform(0, 1) if penalty == 'elasticnet' else None
+        # Fast solvers only - no saga or sag
+        if penalty == 'l1':
+            solver = 'liblinear'  # Only fast solver for l1
+        elif penalty == 'l2':
+            solver = rng.choice(['lbfgs', 'liblinear', 'newton-cg'])  # Fast solvers for l2
+        else:  # penalty is None
+            solver = rng.choice(['lbfgs', 'newton-cg'])  # Fast solvers for no penalty
         
         classifier = LogisticRegression(
             C=C,
             penalty=penalty,
             solver=solver,
-            l1_ratio=l1_ratio,
-            max_iter=rng.choice([500, 1000, 1500]),  # Varied iterations for diversity
+            max_iter=rng.choice([500, 1000]),  # Reasonable iterations
             class_weight='balanced'
             # No random_state for diversity
         )
@@ -432,12 +427,13 @@ def generate_random_pipeline(
         )
     
     elif classifier_type == 'gradient_boosting':
-        max_iter = int(10 ** rng.uniform(1.0, 2.0))  # ~10 to 100
-        learning_rate = 10 ** rng.uniform(-2.5, 0)  # 0.003 to 1.0
-        max_depth = rng.choice([None, 3, 5, 7, 10, 15, 20])  # Removed 30 for speed
+        # SPEED FIX: Reduced max_iter, max_depth, and min learning_rate to prevent 30min+ timeouts
+        max_iter = int(10 ** rng.uniform(1.0, 1.7))  # ~10 to 50 (was 10-100)
+        learning_rate = 10 ** rng.uniform(-2.0, 0)  # 0.01 to 1.0 (was 0.003-1.0)
+        max_depth = rng.choice([None, 3, 5, 7, 10])  # Max 10 (was up to 20)
         l2_regularization = 10 ** rng.uniform(-4, 1)  # 0.0001 to 10
         min_samples_leaf = int(10 ** rng.uniform(1, 2))  # 10 to 100
-        max_bins = rng.choice([32, 64, 128, 255])
+        max_bins = rng.choice([32, 64, 128, 255])  # Keep full range
         classifier = HistGradientBoostingClassifier(
             max_iter=max_iter,
             learning_rate=learning_rate,
@@ -449,17 +445,18 @@ def generate_random_pipeline(
         )
     
     elif classifier_type == 'linear_svc':
-        C = 10 ** rng.uniform(-3, 3)  # 0.001 to 1000
-        loss = rng.choice(['hinge', 'squared_hinge'])
-        # dual=True is preferred when n_samples > n_features
-        # dual=False is preferred when n_features > n_samples
-        # Since we have various feature transformations, use True for stability
+        # SPEED FIX: Reduced C range, max_iter, and use dual=False for speed
+        C = 10 ** rng.uniform(-1, 1)  # 0.1 to 10 (narrower range)
+        loss = 'squared_hinge'  # Only squared_hinge (faster, works with dual=False)
+        # dual=False is much faster when n_features >> n_samples (after transformations)
+        # Also relaxed tolerance for faster convergence
         classifier = LinearSVC(
             C=C,
             loss=loss,
-            max_iter=rng.choice([500, 1000]),  # Faster for ensemble diversity
+            max_iter=rng.choice([200, 300]),  # Further reduced
             class_weight='balanced',
-            dual=True
+            dual=False,  # Much faster with many features
+            tol=1e-3  # Relaxed from default 1e-4 for faster convergence
             # No random_state for diversity
         )
     
