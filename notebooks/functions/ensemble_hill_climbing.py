@@ -143,7 +143,11 @@ def generate_random_pipeline(
     use_pca = rng.random() < 0.5
     if use_pca:
         # Use variance-based selection to avoid dimensionality issues
-        n_components = rng.choice([0.90, 0.95, 0.99, 'mle'])
+        pca_options = [0.90, 0.95, 0.99, 'mle']
+        n_components = rng.choice(pca_options)
+        # Convert numpy scalar to Python type if needed
+        if n_components != 'mle':
+            n_components = float(n_components)
         feature_steps.append(('pca', PCA(
             n_components=n_components,
             random_state=None  # No random state for diversity
