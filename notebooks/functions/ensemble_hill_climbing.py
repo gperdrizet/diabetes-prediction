@@ -248,6 +248,8 @@ def generate_random_pipeline(
         # Check if NMF is selected (requires non-negative features)
         if dim_reduction_name == 'nmf':
             needs_nonnegative = True
+            # Add MinMaxScaler BEFORE NMF to ensure non-negative inputs
+            feature_steps.append(('minmax_for_nmf', MinMaxScaler()))
         
         # Configure based on technique
         if dim_reduction_name == 'pca':
