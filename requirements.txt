@@ -1,3 +1,6 @@
+##############################################################
+# Ensemble hill climbing requirements ########################
+##############################################################
 ipykernel
 matplotlib
 numpy==1.26.4
@@ -7,3 +10,12 @@ tensorflow==2.18.0
 psutil
 
 # Note: version pins reflect default Kaggle environment as of December 2025
+
+##############################################################
+# Progress dashboard requirements ############################
+##############################################################
+streamlit>=1.28.0
+streamlit-autorefresh>=0.0.1
+pandas>=1.5.0
+numpy>=1.23.0
+plotly>=5.14.0
