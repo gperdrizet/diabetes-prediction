@@ -224,6 +224,9 @@ def generate_random_pipeline(
         random_state=None  # No random state for diversity
     )))
     
+    # Initialize flag for non-negative feature requirement
+    needs_nonnegative = False
+    
     # Optionally add dimensionality reduction (50% chance)
     use_dim_reduction = rng.random() < 0.5
     dim_reduction_name = None
@@ -318,10 +321,10 @@ def generate_random_pipeline(
     
     # For Naive Bayes, we need to check which variant will be used
     # MultinomialNB requires non-negative features
-    needs_nonnegative = False
     if classifier_type == 'naive_bayes':
         nb_type = rng.choice(['gaussian', 'multinomial', 'bernoulli'])
-        needs_nonnegative = (nb_type == 'multinomial')
+        if nb_type == 'multinomial':
+            needs_nonnegative = True
     
     # Add appropriate scaler before classifier
     if needs_nonnegative:
