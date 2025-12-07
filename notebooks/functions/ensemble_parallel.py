@@ -7,11 +7,22 @@ Handles batch training of candidate models and helper functions.
 import time
 import psutil
 import os
+import signal
 import numpy as np
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
 from .ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash
+
+
+class TimeoutError(Exception):
+    """Exception raised when training exceeds timeout."""
+    pass
+
+
+def timeout_handler(signum, frame):
+    """Signal handler for timeout."""
+    raise TimeoutError("Training exceeded 5 minute timeout")
 
 
 def train_single_candidate(args):
@@ -35,33 +46,38 @@ def train_single_candidate(args):
     """
     iteration, X_train_pool, y_train_pool, X_val_s1, y_val_s1, base_preprocessor, random_state = args
     
-    start_time = time.time()
-    process = psutil.Process(os.getpid())
-    start_memory = process.memory_info().rss / (1024 ** 2)  # MB
+    # Set 5 minute timeout for training
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(300)  # 5 minutes = 300 seconds
     
-    # Generate random pipeline (includes adaptive row_sample_pct in metadata)
-    pipeline, metadata = generate_random_pipeline(
-        iteration=iteration,
-        random_state=random_state,
-        base_preprocessor=base_preprocessor
-    )
-    
-    # Apply adaptive row sampling based on metadata
-    row_sample_pct = metadata['row_sample_pct']
-    n_total = len(X_train_pool)
-    n_sample = max(100, int(n_total * row_sample_pct))  # At least 100 samples
-    
-    # Sample from training pool
-    X_train, _, y_train, _ = train_test_split(
-        X_train_pool,
-        y_train_pool,
-        train_size=n_sample,
-        stratify=y_train_pool,
-        random_state=random_state
-    )
-    
-    # Train pipeline
-    fitted_pipeline = pipeline.fit(X_train, y_train)
+    try:
+        start_time = time.time()
+        process = psutil.Process(os.getpid())
+        start_memory = process.memory_info().rss / (1024 ** 2)  # MB
+        
+        # Generate random pipeline (includes adaptive row_sample_pct in metadata)
+        pipeline, metadata = generate_random_pipeline(
+            iteration=iteration,
+            random_state=random_state,
+            base_preprocessor=base_preprocessor
+        )
+        
+        # Apply adaptive row sampling based on metadata
+        row_sample_pct = metadata['row_sample_pct']
+        n_total = len(X_train_pool)
+        n_sample = max(100, int(n_total * row_sample_pct))  # At least 100 samples
+        
+        # Sample from training pool
+        X_train, _, y_train, _ = train_test_split(
+            X_train_pool,
+            y_train_pool,
+            train_size=n_sample,
+            stratify=y_train_pool,
+            random_state=random_state
+        )
+        
+        # Train pipeline
+        fitted_pipeline = pipeline.fit(X_train, y_train)
     
     # Track peak memory
     peak_memory = process.memory_info().rss / (1024 ** 2)  # MB
@@ -75,21 +91,35 @@ def train_single_candidate(args):
     
     val_auc_s1 = roc_auc_score(y_val_s1, val_pred_s1)
     
-    # Compute hash
-    pipeline_hash = compute_pipeline_hash(fitted_pipeline, metadata)
+        # Compute hash
+        pipeline_hash = compute_pipeline_hash(fitted_pipeline, metadata)
+        
+        training_time = time.time() - start_time
+        
+        # Cancel the alarm - training completed successfully
+        signal.alarm(0)
+        
+        return {
+            'iteration': iteration,
+            'fitted_pipeline': fitted_pipeline,
+            'metadata': metadata,
+            'val_auc_s1': val_auc_s1,
+            'pipeline_hash': pipeline_hash,
+            'training_time': training_time,
+            'memory_mb': memory_used,
+            'training_time_sec': training_time
+        }
     
-    training_time = time.time() - start_time
+    except TimeoutError as e:
+        # Cancel the alarm
+        signal.alarm(0)
+        # Re-raise with classifier info
+        raise TimeoutError(f"Training exceeded 5 minute timeout (classifier: {metadata.get('classifier_type', 'unknown')})")
     
-    return {
-        'iteration': iteration,
-        'fitted_pipeline': fitted_pipeline,
-        'metadata': metadata,
-        'val_auc_s1': val_auc_s1,
-        'pipeline_hash': pipeline_hash,
-        'training_time': training_time,
-        'memory_mb': memory_used,
-        'training_time_sec': training_time
-    }
+    except Exception as e:
+        # Cancel the alarm on any other error
+        signal.alarm(0)
+        raise
 
 
 def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, y_train_pool,

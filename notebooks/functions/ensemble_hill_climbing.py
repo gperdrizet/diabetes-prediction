@@ -339,15 +339,15 @@ def generate_random_pipeline(
     if classifier_type == 'knn':
         # Very slow: O(n) but expensive distance calculations
         if iteration < 100:
-            row_sample_pct = rng.uniform(0.075, 0.125)  # 7.5-12.5% (was 15-25%)
+            row_sample_pct = rng.uniform(0.0375, 0.0625)  # 3.75-6.25% (halved from 7.5-12.5%)
         else:
-            row_sample_pct = rng.uniform(0.025, 0.075)  # 2.5-7.5% (was 5-15%)
+            row_sample_pct = rng.uniform(0.0125, 0.0375)  # 1.25-3.75% (halved from 2.5-7.5%)
     elif classifier_type in ['mlp', 'adaboost']:
         # Moderately slow: neural networks and boosting need iterations
         if iteration < 100:
-            row_sample_pct = rng.uniform(0.125, 0.20)  # 12.5-20% (was 25-40%)
+            row_sample_pct = rng.uniform(0.125, 0.20)  # 12.5-20% (halved from 25-40%)
         else:
-            row_sample_pct = rng.uniform(0.05, 0.125)  # 5-12.5% (was 10-25%)
+            row_sample_pct = rng.uniform(0.05, 0.125)  # 5-12.5% (halved from 10-25%)
     elif classifier_type in ['random_forest', 'extra_trees', 'gradient_boosting']:
         # Moderate speed: tree ensembles scale reasonably well
         if iteration < 100:
@@ -358,9 +358,9 @@ def generate_random_pipeline(
         # Fast models: logistic, linear_svc, sgd, naive_bayes, lda, qda
         # Can handle larger samples efficiently
         if iteration < 100:
-            row_sample_pct = rng.uniform(0.175, 0.275)  # 17.5-27.5% (was 35-55%)
+            row_sample_pct = rng.uniform(0.35, 0.55)  # 35-55% (doubled from 17.5-27.5%)
         else:
-            row_sample_pct = rng.uniform(0.10, 0.175)  # 10-17.5% (was 20-35%)
+            row_sample_pct = rng.uniform(0.20, 0.35)  # 20-35% (doubled from 10-17.5%)
     
     # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
@@ -457,7 +457,7 @@ def generate_random_pipeline(
             alpha=alpha,
             learning_rate_init=learning_rate_init,
             activation=activation,
-            max_iter=rng.choice([200, 250, 300]),  # Varied for diversity, faster than 300 fixed
+            max_iter=rng.choice([100, 150, 200]),  # Reduced from 200-300 for speed
             early_stopping=True
             # No random_state for diversity
         )
