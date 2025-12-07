@@ -191,10 +191,10 @@ def generate_random_pipeline(
             )
         elif name == 'power_transform':
             # Transforms data to be more Gaussian-like
-            method = rng.choice(['yeo-johnson', 'box-cox'])  # yeo-johnson handles negative values
+            # Only use yeo-johnson as it handles negative values (box-cox requires strictly positive data)
             standardize = rng.choice([True, False])
             transformer = TransformerClass(
-                method=method,
+                method='yeo-johnson',
                 standardize=standardize
                 # No random_state parameter
             )
