@@ -78,8 +78,8 @@ def generate_random_pipeline(
     """
     rng = np.random.RandomState(random_state)
     
-    # Random column sampling
-    col_sample_pct = rng.uniform(0.50, 0.95)
+    # Random column sampling (DIVERSITY BOOST: reduced from 50-95% to 30-70%)
+    col_sample_pct = rng.uniform(0.30, 0.70)
     
     # Select 1-3 feature engineering transformers
     n_transformers = rng.randint(1, 4)
@@ -359,62 +359,36 @@ def generate_random_pipeline(
         # StandardScaler for all other classifiers
         feature_steps.append(('scaler', StandardScaler()))
     
-    # Adaptive row sampling based on classifier complexity
-    # Gradual decrease in sample size as iterations progress
-    # Sample size decreases linearly from iteration 0 to MAX_ITERATIONS
-    # This allows early exploration with more data, later refinement with less
-    
-    # Calculate progress factor (0.0 at iteration 0, 1.0 at iteration 500)
-    max_iter = 500  # Typical max iterations
-    progress = min(iteration / max_iter, 1.0)  # Clamp at 1.0
-    
-    if classifier_type == 'knn':
-        # Very slow: O(n) but expensive distance calculations
-        # Start: 3.75-6.25%, End: 1.25-3.75%
-        min_start, max_start = 0.0375, 0.0625
-        min_end, max_end = 0.0125, 0.0375
-        min_pct = min_start + progress * (min_end - min_start)
-        max_pct = max_start + progress * (max_end - max_start)
-        row_sample_pct = rng.uniform(min_pct, max_pct)
-        
-    elif classifier_type in ['mlp', 'adaboost']:
-        # Moderately slow: neural networks and boosting need iterations
-        # Start: 12.5-20%, End: 5-12.5%
-        min_start, max_start = 0.125, 0.20
-        min_end, max_end = 0.05, 0.125
-        min_pct = min_start + progress * (min_end - min_start)
-        max_pct = max_start + progress * (max_end - max_start)
-        row_sample_pct = rng.uniform(min_pct, max_pct)
-        
-    elif classifier_type in ['random_forest', 'extra_trees', 'gradient_boosting']:
-        # Moderate speed: tree ensembles scale reasonably well
-        # Start: 15-22.5%, End: 7.5-15%
-        min_start, max_start = 0.15, 0.225
-        min_end, max_end = 0.075, 0.15
-        min_pct = min_start + progress * (min_end - min_start)
-        max_pct = max_start + progress * (max_end - max_start)
-        row_sample_pct = rng.uniform(min_pct, max_pct)
-        
-    else:
-        # Fast models: logistic, linear_svc, sgd, naive_bayes, lda, qda
-        # Can handle larger samples efficiently
-        # Start: 70-100%, End: 40-70%
-        min_start, max_start = 0.70, 1.0
-        min_end, max_end = 0.40, 0.70
-        min_pct = min_start + progress * (min_end - min_start)
-        max_pct = max_start + progress * (max_end - max_start)
-        row_sample_pct = rng.uniform(min_pct, max_pct)
+    # DIVERSITY BOOST: Uniform low row sampling for ALL classifiers (2.5-30%)
+    # This maximizes training data diversity - different models see very different subsets
+    # Old approach: 1.25-100% varied by classifier (too much overlap)
+    # New approach: 2.5-30% uniform (minimal overlap, maximum diversity)
+    row_sample_pct = rng.uniform(0.025, 0.30)
     
     # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
         C = 10 ** rng.uniform(-4, 3)  # 0.0001 to 1000
-        penalty = rng.choice(['l2', None])
-        solver = 'saga' if penalty is None else 'lbfgs'
+        # DIVERSITY BOOST: Expanded penalty options (was just l2/None)
+        penalty = rng.choice(['l1', 'l2', 'elasticnet', None])
+        # DIVERSITY BOOST: Expanded solver options for different penalties
+        if penalty == 'l1':
+            solver = rng.choice(['liblinear', 'saga'])
+        elif penalty == 'l2':
+            solver = rng.choice(['lbfgs', 'liblinear', 'newton-cg', 'sag', 'saga'])
+        elif penalty == 'elasticnet':
+            solver = 'saga'  # Only saga supports elasticnet
+        else:  # penalty is None
+            solver = rng.choice(['lbfgs', 'newton-cg', 'sag', 'saga'])
+        
+        # ElasticNet requires l1_ratio parameter
+        l1_ratio = rng.uniform(0, 1) if penalty == 'elasticnet' else None
+        
         classifier = LogisticRegression(
             C=C,
             penalty=penalty,
             solver=solver,
-            max_iter=rng.choice([500, 1000]),  # Faster convergence for ensemble diversity
+            l1_ratio=l1_ratio,
+            max_iter=rng.choice([500, 1000, 1500]),  # Varied iterations for diversity
             class_weight='balanced'
             # No random_state for diversity
         )
