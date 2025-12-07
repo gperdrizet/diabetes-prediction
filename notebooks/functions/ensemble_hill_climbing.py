@@ -500,11 +500,9 @@ def compute_pipeline_hash(pipeline: Pipeline, metadata: Dict[str, Any]) -> str:
 
 def log_iteration(
     iteration: int,
-    fold: int,
     accepted: bool,
     rejection_reason: str,
     pipeline_hash: str,
-    stage1_cv_score: float,
     stage1_val_auc: float,
     stage2_val_auc: float,
     ensemble_size: int,
@@ -519,18 +517,14 @@ def log_iteration(
     ----------
     iteration : int
         Iteration number.
-    fold : int
-        Current validation fold.
     accepted : bool
         Whether candidate was accepted.
     rejection_reason : str
         Reason for acceptance/rejection.
     pipeline_hash : str
         Hash of pipeline configuration.
-    stage1_cv_score : float
-        Stage 1 cross-validation ROC-AUC score.
     stage1_val_auc : float
-        Stage 1 validation fold ROC-AUC score.
+        Stage 1 validation ROC-AUC score.
     stage2_val_auc : float
         Stage 2 ensemble validation ROC-AUC score.
     ensemble_size : int
@@ -548,21 +542,21 @@ def log_iteration(
         # Serialize transformers list to comma-separated string
         transformers_used = ','.join(metadata.get('transformers_used', []))
         
-        # Calculate combined score (for dashboard sorting)
-        combined_score = stage2_val_auc
-        
         iteration_data = {
             'timestamp': datetime.now().isoformat(),
             'iteration_num': iteration,
             'ensemble_id': ensemble_id,
-            'cv_score': stage1_cv_score,
+            'stage1_val_auc': stage1_val_auc,
+            'stage2_val_auc': stage2_val_auc,
             'diversity_score': diversity_score,
-            'combined_score': combined_score,
             'temperature': temperature,
             'accepted': 1 if accepted else 0,
-            'acceptance_reason': rejection_reason,
+            'rejection_reason': rejection_reason,
             'num_models': ensemble_size,
+            'classifier_type': metadata.get('classifier_type', ''),
             'transformers_used': transformers_used,
+            'use_pca': 1 if metadata.get('use_pca', False) else 0,
+            'pca_components': metadata.get('n_pca_components'),
             'pipeline_hash': pipeline_hash
         }
         

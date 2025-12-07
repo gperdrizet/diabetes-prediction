@@ -46,14 +46,17 @@ def init_database() -> None:
             timestamp TEXT NOT NULL,
             iteration_num INTEGER NOT NULL,
             ensemble_id TEXT NOT NULL,
-            cv_score REAL NOT NULL,
+            stage1_val_auc REAL NOT NULL,
+            stage2_val_auc REAL NOT NULL,
             diversity_score REAL NOT NULL,
-            combined_score REAL NOT NULL,
             temperature REAL NOT NULL,
             accepted INTEGER NOT NULL,
-            acceptance_reason TEXT,
+            rejection_reason TEXT,
             num_models INTEGER NOT NULL,
+            classifier_type TEXT,
             transformers_used TEXT,
+            use_pca INTEGER,
+            pca_components REAL,
             pipeline_hash TEXT NOT NULL
         )
     ''')
@@ -92,14 +95,17 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
             - timestamp (str): ISO format timestamp
             - iteration_num (int): Iteration number
             - ensemble_id (str): Unique ensemble identifier
-            - cv_score (float): Cross-validation score
+            - stage1_val_auc (float): Stage 1 validation AUC
+            - stage2_val_auc (float): Stage 2 validation AUC (ensemble)
             - diversity_score (float): Ensemble diversity score
-            - combined_score (float): Combined objective score
             - temperature (float): Current simulated annealing temperature
             - accepted (int): 1 if accepted, 0 if rejected
-            - acceptance_reason (str): Reason for acceptance/rejection
+            - rejection_reason (str): Reason for acceptance/rejection
             - num_models (int): Number of models in ensemble
+            - classifier_type (str): Type of classifier
             - transformers_used (str): Comma-separated transformer names
+            - use_pca (int): 1 if PCA used, 0 otherwise
+            - pca_components (float): Number of PCA components
             - pipeline_hash (str): Hash of pipeline configuration
     
     Raises:
@@ -109,22 +115,26 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
     try:
         conn.execute('''
             INSERT INTO ensemble_log (
-                timestamp, iteration_num, ensemble_id, cv_score, diversity_score,
-                combined_score, temperature, accepted, acceptance_reason,
-                num_models, transformers_used, pipeline_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                timestamp, iteration_num, ensemble_id, stage1_val_auc, stage2_val_auc,
+                diversity_score, temperature, accepted, rejection_reason,
+                num_models, classifier_type, transformers_used, use_pca, pca_components,
+                pipeline_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             iteration_data['timestamp'],
             iteration_data['iteration_num'],
             iteration_data['ensemble_id'],
-            iteration_data['cv_score'],
+            iteration_data['stage1_val_auc'],
+            iteration_data['stage2_val_auc'],
             iteration_data['diversity_score'],
-            iteration_data['combined_score'],
             iteration_data['temperature'],
             iteration_data['accepted'],
-            iteration_data.get('acceptance_reason', ''),
+            iteration_data.get('rejection_reason', ''),
             iteration_data['num_models'],
+            iteration_data.get('classifier_type', ''),
             iteration_data.get('transformers_used', ''),
+            iteration_data.get('use_pca', 0),
+            iteration_data.get('pca_components'),
             iteration_data['pipeline_hash']
         ))
         conn.commit()

@@ -75,26 +75,34 @@ CREATE TABLE ensemble_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
     iteration_num INTEGER NOT NULL,
+    fold INTEGER NOT NULL,
     ensemble_id TEXT NOT NULL,
-    cv_score REAL NOT NULL,
-    diversity_score REAL NOT NULL,
-    combined_score REAL NOT NULL,
-    temperature REAL NOT NULL,
     accepted INTEGER NOT NULL,
-    acceptance_reason TEXT,
-    num_models INTEGER NOT NULL,
-    transformers_used TEXT,
-    pipeline_hash TEXT NOT NULL
+    rejection_reason TEXT,
+    pipeline_hash TEXT NOT NULL,
+    stage1_cv_score REAL NOT NULL,        -- Always 0.0 (no CV performed)
+    stage1_val_auc REAL NOT NULL,         -- Individual model AUC on stage 1 val set
+    stage2_val_auc REAL NOT NULL,         -- Ensemble AUC (simple mean or DNN weighted)
+    ensemble_size INTEGER NOT NULL,       -- Number of models in ensemble
+    diversity_score REAL NOT NULL,        -- Diversity metric
+    temperature REAL NOT NULL,
+    classifier_type TEXT,
+    transformers_used TEXT,               -- Comma-separated list
+    use_pca INTEGER,
+    pca_components REAL
 );
 
 CREATE INDEX idx_iteration_num ON ensemble_log(iteration_num);
 CREATE INDEX idx_ensemble_id ON ensemble_log(ensemble_id);
+CREATE INDEX idx_accepted ON ensemble_log(accepted);
 
 -- stage2_log table
 CREATE TABLE stage2_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
     ensemble_id TEXT NOT NULL,
+    iteration_num INTEGER NOT NULL,
+    fold INTEGER NOT NULL,
     epoch INTEGER NOT NULL,
     train_loss REAL NOT NULL,
     val_loss REAL NOT NULL,
@@ -197,10 +205,16 @@ except Exception as e:
 **Expected Duration**: Hours to days (long-running process)
 
 **What happens**:
-- Founder ensemble is created (5 diverse models)
+- Single founder model is created (1 diverse model)
 - Hill climbing loop begins with simulated annealing
 - Each iteration logs to SQLite database in real-time
-- Stage 2 DNN training epochs logged for each accepted ensemble
+- **Batch-based aggregation**:
+  - Models 1-9: Simple mean ensemble evaluation
+  - Model 10: Stage 2 DNN trained on first batch
+  - Models 11-19: DNN weighted ensemble evaluation
+  - Model 20: Stage 2 DNN retrained with transfer learning (10→20 inputs)
+  - Pattern continues every 10 accepted models
+- Stage 2 DNN training epochs logged for each batch
 - Training continues until stopped manually or target iterations reached
 
 **Monitoring during training**:
@@ -219,15 +233,36 @@ These steps create the Streamlit monitoring dashboard while training runs in bac
 Create Streamlit application with the following components:
 
 **Core Features**:
-1. **Auto-refresh**: Use `streamlit-autorefresh` for live updates
+1. **Auto-refresh**: Use `streamlit-autorefresh` for live updates (60s interval)
 2. **Hardcoded database path**: `DB_PATH = '/workspaces/diabetes-prediction/data/ensemble_training.db'`
 3. **Cached queries**: `@st.cache_data(ttl=60)` for all database queries
-4. **Header metrics**: Total iterations, best CV score, current temperature, time since last update
+4. **Header metrics**: 
+   - Total iterations (accepted + rejected)
+   - Current ensemble size (accepted models only)
+   - Best stage 2 validation AUC
+   - Current temperature
+   - Current aggregation method (simple mean / DNN weighted)
+   - Time since last update
 5. **Tabbed interface**:
-   - **Performance Tab**: CV score over iterations, combined score over iterations
-   - **Diversity Tab**: Diversity score over iterations, diversity vs CV score scatter
-   - **Composition Tab**: Transformer usage frequency, models per iteration
-   - **Stage 2 Tab**: DNN training curves (loss, AUC) for selected ensemble
+   - **Performance Tab**: 
+     - Stage 2 validation AUC over iterations (line chart)
+     - Stage 1 validation AUC over iterations (line chart) 
+     - Acceptance/rejection markers on timeline
+     - Show batch boundaries (every 10 accepted models)
+   - **Diversity Tab**: 
+     - Diversity score over iterations
+     - Diversity vs stage 1 AUC scatter plot
+     - Classifier type distribution in ensemble
+   - **Composition Tab**: 
+     - Transformer usage frequency (bar chart)
+     - Classifier type distribution (pie chart)
+     - PCA usage statistics
+     - Ensemble size over time
+   - **Stage 2 DNN Tab**: 
+     - DNN training curves per batch (loss, AUC)
+     - Dropdown to select batch (batch_10, batch_20, etc.)
+     - Show transfer learning events
+     - Input dimension growth over batches
 6. **CSV export**: Download current ensemble_log and stage2_log tables
 7. **Database reset**: Multi-step confirmation (text input "DELETE DATABASE" + button click)
 
@@ -335,11 +370,15 @@ numpy>=1.23.0
 
 ## Success Criteria
 
-- [ ] Database module creates tables with correct schema
-- [ ] Hill climbing iterations log to SQLite in real-time
-- [ ] Stage 2 DNN epochs log to SQLite during training
-- [ ] Training notebook runs without errors
+- [x] Database module creates tables with correct schema
+- [x] Hill climbing iterations log to SQLite in real-time
+- [x] Stage 2 DNN epochs log to SQLite during training
+- [x] Training notebook runs without errors
+- [x] Batch-based training works (simple mean → DNN every 10 models)
+- [x] Transfer learning expands DNN architecture correctly
 - [ ] Dashboard displays live data from training run
+- [ ] Dashboard shows aggregation method changes (mean → DNN)
+- [ ] Dashboard visualizes batch boundaries
 - [ ] Auto-refresh updates dashboard every 60 seconds
 - [ ] CSV export downloads complete data
 - [ ] Database reset requires multi-step confirmation
@@ -353,10 +392,37 @@ If SQLite integration causes issues:
 3. Database file can be safely deleted (all data is also in checkpoints)
 4. Training can resume from last checkpoint
 
+## Training Architecture Notes
+
+**Key Implementation Changes from Original Plan**:
+1. **No cross-validation**: Stage 1 models trained once, no CV performed (stage1_cv_score always 0.0)
+2. **No hyperparameter optimization**: Random hyperparameters from wide distributions, no RandomizedSearchCV
+3. **Single founder model**: Changed from 5 founder models to 1 for simplicity
+4. **Batch-based DNN training**: Train every 10 accepted models instead of every iteration
+5. **Transfer learning**: DNN architecture expands progressively (10→20→30 inputs)
+6. **Three-way data split**:
+   - Training pool (60%): Random samples for stage 1 training
+   - Stage 1 validation (20%): FIXED - for stage 1 evaluation and stage 2 training
+   - Stage 2 validation (20%): HELD OUT - for final ensemble evaluation
+7. **Aggregation methods**:
+   - Models 1-9: Simple mean of predictions
+   - Models 10+: DNN weighted ensemble (retrained every 10 models)
+
+**Performance Optimizations**:
+- No CV: ~4x faster per iteration
+- Batch DNN training: ~90% of iterations use fast mean/weighted aggregation
+- Transfer learning: Faster DNN convergence than training from scratch
+- Random training samples: 10k-50k per iteration for diversity
+
 ## Next Steps After Implementation
 
 1. Monitor first training run for several iterations
-2. Verify database growth is reasonable (not too large)
-3. Check dashboard performance with large datasets (1000+ iterations)
-4. Consider adding database maintenance (VACUUM, ANALYZE) for long runs
-5. Optionally add more visualizations based on training insights
+2. Verify batch transitions work correctly (mean → DNN at model 10, 20, etc.)
+3. Check transfer learning preserves model weights correctly
+4. Verify database growth is reasonable (not too large)
+5. Check dashboard performance with large datasets (1000+ iterations)
+6. Consider adding database maintenance (VACUUM, ANALYZE) for long runs
+7. Optionally add more visualizations based on training insights:
+   - Transfer learning impact on convergence
+   - Comparison of simple mean vs DNN weighted performance
+   - Model contribution weights from DNN input layer

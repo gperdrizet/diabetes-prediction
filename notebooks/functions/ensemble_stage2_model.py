@@ -213,8 +213,7 @@ def train_stage2_dnn(
     batch_size: int = 128,
     patience: int = 10,
     log_path: Optional[Path] = None,
-    iteration: Optional[int] = None,
-    fold: Optional[int] = None
+    iteration: Optional[int] = None
 ) -> Tuple[models.Sequential, Dict[str, Any]]:
     """Train stage 2 DNN with early stopping.
     
@@ -237,11 +236,9 @@ def train_stage2_dnn(
     patience : int, default=10
         Early stopping patience.
     log_path : Path or None, default=None
-        Path to log training metrics (JSONL format).
+        Path to log training metrics (used as ensemble_id string).
     iteration : int or None, default=None
         Current iteration (for logging).
-    fold : int or None, default=None
-        Current fold (for logging).
     
     Returns
     -------
@@ -264,7 +261,7 @@ def train_stage2_dnn(
     # Custom callback for SQLite logging
     if log_path is not None:
         # log_path parameter now used to pass ensemble_id as string
-        ensemble_id = str(log_path) if log_path else f"iter_{iteration}_fold_{fold}"
+        ensemble_id = str(log_path) if log_path else f"iter_{iteration}"
         
         class LoggingCallback(callbacks.Callback):
             def on_epoch_end(self, epoch, logs=None):
@@ -356,7 +353,6 @@ def save_checkpoint(
     stage2_model: models.Sequential,
     iteration: int,
     temperature: float,
-    current_fold: int,
     best_score: float,
     acceptance_history: List[bool],
     metadata: Dict[str, Any]
@@ -375,8 +371,6 @@ def save_checkpoint(
         Current iteration.
     temperature : float
         Current temperature.
-    current_fold : int
-        Current validation fold.
     best_score : float
         Best ensemble ROC-AUC score.
     acceptance_history : list
@@ -394,7 +388,6 @@ def save_checkpoint(
     checkpoint_data = {
         'iteration': iteration,
         'temperature': temperature,
-        'current_fold': current_fold,
         'best_score': best_score,
         'acceptance_history': acceptance_history,
         'ensemble_size': len(ensemble_models),
