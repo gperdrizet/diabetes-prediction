@@ -117,7 +117,8 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
     Prepare a batch of training jobs for parallel execution.
     
     OPTIMIZATION: Pre-samples training data in main process to minimize serialization.
-    Each worker receives only the subset of data it needs, not the full pool.
+    Each worker receives only the subset of data it needs (~2.5-27.5%), not the full pool.
+    Data is kept as DataFrames (required by sklearn ColumnTransformer).
     
     CPU ALLOCATION: Intelligently distributes available cores across models in the batch.
     Slower parallelizable models (RandomForest, KNN, ExtraTrees) get more cores.
@@ -130,10 +131,10 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         Number of candidates to train in parallel
     max_iterations : int
         Maximum total iterations
-    X_train_pool, y_train_pool : arrays
-        Training pool data (will be converted to numpy if needed)
-    X_val_s1, y_val_s1 : arrays
-        Stage 1 validation data (will be converted to numpy if needed)
+    X_train_pool, y_train_pool : DataFrame/Series
+        Training pool data (kept as DataFrames for ColumnTransformer)
+    X_val_s1, y_val_s1 : DataFrame/Series
+        Stage 1 validation data (kept as DataFrames for ColumnTransformer)
     base_preprocessor : ColumnTransformer
         Base preprocessor for features
     random_state : int
@@ -152,16 +153,9 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         import multiprocessing
         total_cpus = multiprocessing.cpu_count()
     
-    # Convert DataFrames to numpy arrays to avoid pickling overhead
-    # This is CRITICAL for ProcessPoolExecutor performance
-    if hasattr(X_train_pool, 'values'):
-        X_train_pool = X_train_pool.values
-    if hasattr(y_train_pool, 'values'):
-        y_train_pool = y_train_pool.values
-    if hasattr(X_val_s1, 'values'):
-        X_val_s1 = X_val_s1.values
-    if hasattr(y_val_s1, 'values'):
-        y_val_s1 = y_val_s1.values
+    # NOTE: We keep data as DataFrames (NOT converted to numpy) because sklearn's
+    # ColumnTransformer requires column names for feature selection.
+    # Pre-sampling (below) is the key optimization that reduces serialization overhead.
     
     # Peek at what classifiers will be generated to allocate cores intelligently
     # Classifiers that benefit from parallelization (higher priority):
@@ -252,12 +246,13 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         )
         
         # Pass only the sampled data (much smaller!) + allocated CPU cores
+        # Data remains as DataFrames for ColumnTransformer compatibility
         batch_jobs.append((
             current_iter,
-            X_train_sample,  # Only the subset needed for this model
-            y_train_sample,  # Only the subset needed for this model
-            X_val_s1,
-            y_val_s1,
+            X_train_sample,  # Pre-sampled subset (DataFrame)
+            y_train_sample,  # Pre-sampled subset (Series)
+            X_val_s1,        # Full validation (DataFrame)
+            y_val_s1,        # Full validation (Series)
             base_preprocessor,
             random_state + current_iter,
             cores_per_job[i]  # Allocated CPU cores for this model
