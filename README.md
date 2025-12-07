@@ -163,7 +163,7 @@ The ensemble generates diverse pipelines by randomly combining:
 6. **Square**: x² transformations
 7. **Square Root**: √x transformations
 8. **Log**: log(x+1) transformations
-9. **Binning**: Quantile/uniform binning (3-10 bins)
+9. **Binning**: Quantile/uniform binning (3-7 bins)
 10. **KDE Smoothing**: Kernel density estimation smoothing
 11. **K-Means Clustering**: Cluster labels + optional distances (3-10 clusters)
 12. **Nystroem**: Kernel approximation (RBF/poly/sigmoid/cosine, 30-300 components)

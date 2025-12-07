@@ -134,12 +134,13 @@ def generate_random_pipeline(
                 random_state=None  # No random state for diversity
             )
         elif name == 'binning':
-            n_bins = rng.randint(3, 11)
+            n_bins = rng.randint(3, 8)  # Reduced max bins from 10 to 7 to avoid small bin warnings
             strategy = rng.choice(['quantile', 'uniform'])
             transformer = TransformerClass(
                 n_bins=n_bins,
                 strategy=strategy,
                 encode='ordinal',
+                subsample=None,  # Use all data for binning
                 random_state=None  # No random state for diversity
             )
         elif name == 'kde':
