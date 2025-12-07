@@ -117,7 +117,7 @@ if ensemble_df.empty:
 stats = get_summary_stats(ensemble_df)
 
 # Header metrics
-col1, col2, col3, col4, col5, col6 = st.columns(6)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     st.metric("Total Iterations", stats['total_iterations'])
@@ -132,9 +132,6 @@ with col4:
     st.metric("Temperature", f"{stats['current_temp']:.4f}")
     
 with col5:
-    st.metric("Aggregation", stats['aggregation_method'])
-    
-with col6:
     if stats['last_update']:
         last_update = datetime.fromisoformat(stats['last_update'])
         time_diff = datetime.now() - last_update
