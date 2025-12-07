@@ -178,7 +178,7 @@ st.progress(accept_rate / 100, text=f"Acceptance Rate: {accept_rate:.1f}% ({stat
 st.markdown("---")
 
 # Tabbed interface
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Performance", "🔀 Diversity", "🧩 Composition", "🧠 Stage 2 DNN", "💾 Memory Usage"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Performance", "🔀 Diversity", "🧩 Composition", "🧠 Stage 2 DNN", "💾 Memory Usage", "⏱️ Timing"])
 
 # ====================
 # PERFORMANCE TAB
@@ -737,3 +737,119 @@ st.sidebar.text(f"Path: {DB_PATH}")
 if check_database_exists():
     db_size = Path(DB_PATH).stat().st_size / (1024 * 1024)  # MB
     st.sidebar.text(f"Size: {db_size:.2f} MB")
+
+# ====================
+# TIMING TAB
+# ====================
+with tab6:
+    st.header("⏱️ Timing Analysis")
+    
+    if ensemble_df.empty or 'training_time_sec' not in ensemble_df.columns:
+        st.info("No timing data available yet. Start training to collect metrics.")
+    else:
+        # Filter for rows with timing data
+        df_time = ensemble_df[ensemble_df['training_time_sec'].notna()].copy()
+        
+        if df_time.empty:
+            st.info("No timing data available yet.")
+        else:
+            # Header metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                avg_training_time = df_time['training_time_sec'].mean()
+                st.metric("Avg Training Time", f"{avg_training_time:.1f}s")
+            
+            with col2:
+                total_training_time = df_time['training_time_sec'].sum()
+                st.metric("Total Training Time", f"{total_training_time/60:.1f} min")
+            
+            with col3:
+                if 'stage2_time_sec' in df_time.columns and df_time['stage2_time_sec'].notna().any():
+                    avg_stage2_time = df_time[df_time['stage2_time_sec'].notna()]['stage2_time_sec'].mean()
+                    st.metric("Avg Stage 2 Time", f"{avg_stage2_time:.1f}s")
+                else:
+                    st.metric("Avg Stage 2 Time", "N/A")
+            
+            with col4:
+                if 'stage2_time_sec' in df_time.columns and df_time['stage2_time_sec'].notna().any():
+                    total_stage2_time = df_time[df_time['stage2_time_sec'].notna()]['stage2_time_sec'].sum()
+                    st.metric("Total Stage 2 Time", f"{total_stage2_time/60:.1f} min")
+                else:
+                    st.metric("Total Stage 2 Time", "N/A")
+            
+            # Chart 1: Training time over iterations
+            st.subheader("Training Time Over Iterations")
+            fig_time_iter = px.line(
+                df_time,
+                x='iteration',
+                y='training_time_sec',
+                title='Parallel Training Time per Iteration',
+                labels={'iteration': 'Iteration', 'training_time_sec': 'Time (seconds)'}
+            )
+            fig_time_iter.update_traces(mode='lines+markers', marker_color='green')
+            st.plotly_chart(fig_time_iter, use_container_width=True)
+            
+            # Chart 2: Time by classifier type
+            st.subheader("Training Time by Classifier Type")
+            time_by_classifier = df_time.groupby('classifier_type').agg({
+                'training_time_sec': ['mean', 'max', 'min', 'count']
+            }).reset_index()
+            time_by_classifier.columns = ['classifier_type', 'avg_time', 'max_time', 'min_time', 'count']
+            
+            fig_time_classifier = go.Figure()
+            fig_time_classifier.add_trace(go.Bar(
+                x=time_by_classifier['classifier_type'],
+                y=time_by_classifier['avg_time'],
+                name='Average Time',
+                marker_color='lightgreen',
+                error_y=dict(
+                    type='data',
+                    array=time_by_classifier['max_time'] - time_by_classifier['avg_time'],
+                    arrayminus=time_by_classifier['avg_time'] - time_by_classifier['min_time']
+                )
+            ))
+            fig_time_classifier.update_layout(
+                title='Training Time by Classifier Type (with min/max range)',
+                xaxis_title='Classifier Type',
+                yaxis_title='Time (seconds)'
+            )
+            st.plotly_chart(fig_time_classifier, use_container_width=True)
+            
+            # Chart 3: Stage 2 DNN training time (if available)
+            if 'stage2_time_sec' in df_time.columns:
+                df_stage2_time = df_time[df_time['stage2_time_sec'].notna()].copy()
+                if not df_stage2_time.empty:
+                    st.subheader("Stage 2 DNN Training Time")
+                    fig_stage2_time = px.line(
+                        df_stage2_time,
+                        x='iteration',
+                        y='stage2_time_sec',
+                        title='Time for Stage 2 DNN Training',
+                        labels={'iteration': 'Iteration', 'stage2_time_sec': 'Time (seconds)'}
+                    )
+                    fig_stage2_time.update_traces(mode='lines+markers', marker_color='purple')
+                    st.plotly_chart(fig_stage2_time, use_container_width=True)
+            
+            # Chart 4: Time efficiency (time per AUC improvement)
+            st.subheader("Time Efficiency")
+            if len(df_time) > 1:
+                df_time['auc_improvement'] = df_time['stage2_auc_roc'].diff()
+                df_time['time_per_improvement'] = df_time['training_time_sec'] / df_time['auc_improvement'].abs()
+                df_time_eff = df_time[df_time['time_per_improvement'].notna() & 
+                                      ~df_time['time_per_improvement'].isin([float('inf'), -float('inf')])].copy()
+                
+                if not df_time_eff.empty:
+                    fig_time_eff = px.scatter(
+                        df_time_eff,
+                        x='iteration',
+                        y='time_per_improvement',
+                        color='classifier_type',
+                        title='Training Time per AUC Improvement (Lower is Better)',
+                        labels={'iteration': 'Iteration', 'time_per_improvement': 'Seconds per 0.01% AUC'},
+                        hover_data=['training_time_sec', 'stage2_auc_roc']
+                    )
+                    st.plotly_chart(fig_time_eff, use_container_width=True)
+                else:
+                    st.info("Not enough data yet to calculate time efficiency.")
+
