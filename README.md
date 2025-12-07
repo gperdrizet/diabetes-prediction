@@ -173,12 +173,11 @@ The ensemble generates diverse pipelines by randomly combining:
 16. **Quantile Transform**: Transform to uniform or normal distribution (100/500/1000 quantiles)
 17. **Standard Scaler**: Standardization with configurable centering/scaling
 
-**5 Dimensionality reduction techniques** (randomly select one or none):
+**4 Dimensionality reduction techniques** (randomly select one or none):
 1. **PCA**: Principal Component Analysis (90%/95%/99% variance or MLE)
 2. **Truncated SVD**: SVD without centering (5-50 components)
 3. **Fast ICA**: Independent Component Analysis (5-50 components)
-4. **NMF**: Non-negative Matrix Factorization (5-50 components)
-5. **Factor Analysis**: Gaussian latent variable model (5-50 components)
+4. **Factor Analysis**: Gaussian latent variable model (5-50 components)
 
 Each pipeline randomly selects:
 - 1 classifier with randomized hyperparameters
@@ -299,7 +298,7 @@ final_preds = stage2_model.predict(np.column_stack(stage1_preds))
 - **Parallel processing**: Multi-core batch training with adaptive n_jobs allocation
 - **Adaptive sampling**: Classifier-aware row sampling (5-55% of data)
 - **Feature engineering**: 15 transformer types with random combinations
-- **Dimensionality reduction**: 5 techniques (PCA, TruncatedSVD, FastICA, NMF, FactorAnalysis)
+- **Dimensionality reduction**: 4 techniques (PCA, TruncatedSVD, FastICA, FactorAnalysis)
 - **Kernel approximation**: Nystroem, RBFSampler, SkewedChi2Sampler for non-linear features
 - **Early stopping**: Plateau detection (100 iterations without improvement)
 - **Checkpointing**: Resume from failures with full state preservation
@@ -328,7 +327,7 @@ Training typically produces:
 This is a Kaggle competition project. Feel free to fork and experiment with different:
 - Model types and hyperparameters (13 classifiers currently supported)
 - Feature engineering transformers (15 types available)
-- Dimensionality reduction techniques (5 methods implemented)
+- Dimensionality reduction techniques (4 methods implemented)
 - Hill climbing strategies and acceptance criteria
 - Meta-learner architectures and training strategies
 - Diversity metrics and ensemble evaluation methods

@@ -106,7 +106,6 @@ def generate_random_pipeline(
         ('pca', PCA),
         ('truncated_svd', TruncatedSVD),
         ('fast_ica', FastICA),
-        ('nmf', NMF),
         ('factor_analysis', FactorAnalysis)
     ]
     
@@ -139,9 +138,8 @@ def generate_random_pipeline(
             transformer = TransformerClass(
                 n_bins=n_bins,
                 strategy=strategy,
-                encode='ordinal',
-                subsample=None,  # Use all data for binning
-                random_state=None  # No random state for diversity
+                encode='ordinal'
+                # No random_state parameter for KBinsDiscretizer
             )
         elif name == 'kde':
             bandwidth = rng.choice(['scott', 'silverman'])
@@ -244,12 +242,6 @@ def generate_random_pipeline(
         idx = rng.randint(0, len(dim_reduction_options))
         dim_reduction_name, DimReductionClass = dim_reduction_options[idx]
         
-        # Check if NMF is selected (requires non-negative features)
-        if dim_reduction_name == 'nmf':
-            needs_nonnegative = True
-            # Add MinMaxScaler BEFORE NMF to ensure non-negative inputs
-            feature_steps.append(('minmax_for_nmf', MinMaxScaler()))
-        
         # Configure based on technique
         if dim_reduction_name == 'pca':
             # Use variance-based selection to avoid dimensionality issues
@@ -260,6 +252,7 @@ def generate_random_pipeline(
                 n_components = float(n_components)
             dim_reducer = DimReductionClass(
                 n_components=n_components,
+                svd_solver='full',  # More robust to edge cases (constant features, low variance)
                 random_state=None  # No random state for diversity
             )
         elif dim_reduction_name == 'truncated_svd':
@@ -277,26 +270,13 @@ def generate_random_pipeline(
             algorithm = rng.choice(['parallel', 'deflation'])
             fun = rng.choice(['logcosh', 'exp', 'cube'])
             max_iter = rng.randint(200, 1001)  # 200 to 1000 iterations
+            whiten = rng.choice(['unit-variance', True, False])  # Explicit whiten setting
             dim_reducer = DimReductionClass(
                 n_components=n_components,
                 algorithm=algorithm,
                 fun=fun,
                 max_iter=max_iter,
-                random_state=None  # No random state for diversity
-            )
-        elif dim_reduction_name == 'nmf':
-            # Non-negative Matrix Factorization (requires non-negative features)
-            n_components = int(10 ** rng.uniform(0.7, 1.7))  # 5 to 50 components
-            init = rng.choice(['random', 'nndsvd', 'nndsvda', 'nndsvdar'])
-            max_iter = rng.randint(200, 1001)  # 200 to 1000 iterations
-            alpha_W = 10 ** rng.uniform(-3, 0)  # 0.001 to 1.0
-            alpha_H = 10 ** rng.uniform(-3, 0)  # 0.001 to 1.0
-            dim_reducer = DimReductionClass(
-                n_components=n_components,
-                init=init,
-                max_iter=max_iter,
-                alpha_W=alpha_W,
-                alpha_H=alpha_H,
+                whiten=whiten,
                 random_state=None  # No random state for diversity
             )
         elif dim_reduction_name == 'factor_analysis':
@@ -347,8 +327,8 @@ def generate_random_pipeline(
     # Adaptive row sampling based on classifier complexity
     # Slower/more complex models get smaller samples for faster training
     # All ranges reduced by 50% for maximum speed
-    if classifier_type in ['gaussian_process', 'knn']:
-        # Very slow: O(n³) for GP, O(n) for kNN but expensive distance calculations
+    if classifier_type == 'knn':
+        # Very slow: O(n) but expensive distance calculations
         if iteration < 100:
             row_sample_pct = rng.uniform(0.075, 0.125)  # 7.5-12.5% (was 15-25%)
         else:
@@ -426,12 +406,15 @@ def generate_random_pipeline(
     elif classifier_type == 'linear_svc':
         C = 10 ** rng.uniform(-3, 3)  # 0.001 to 1000
         loss = rng.choice(['hinge', 'squared_hinge'])
+        # dual=True is preferred when n_samples > n_features
+        # dual=False is preferred when n_features > n_samples
+        # Since we have various feature transformations, use True for stability
         classifier = LinearSVC(
             C=C,
             loss=loss,
             max_iter=rng.choice([500, 1000]),  # Faster for ensemble diversity
             class_weight='balanced',
-            dual='auto'
+            dual=True
             # No random_state for diversity
         )
     
