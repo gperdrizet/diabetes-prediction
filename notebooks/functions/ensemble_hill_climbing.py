@@ -31,7 +31,7 @@ from sklearn.model_selection import RandomizedSearchCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, PowerTransformer
+from sklearn.preprocessing import StandardScaler, PowerTransformer, MinMaxScaler
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import SGDClassifier
 from sklearn.kernel_approximation import Nystroem, RBFSampler, SkewedChi2Sampler
@@ -293,10 +293,7 @@ def generate_random_pipeline(
         
         feature_steps.append((dim_reduction_name, dim_reducer))
     
-    # Add standard scaler before classifier
-    feature_steps.append(('scaler', StandardScaler()))
-    
-    # Select classifier
+    # Select classifier first to determine scaling strategy
     classifier_options = [
         'logistic_regression',
         'random_forest',
@@ -314,6 +311,21 @@ def generate_random_pipeline(
     ]
     
     classifier_type = rng.choice(classifier_options)
+    
+    # For Naive Bayes, we need to check which variant will be used
+    # MultinomialNB requires non-negative features
+    needs_nonnegative = False
+    if classifier_type == 'naive_bayes':
+        nb_type = rng.choice(['gaussian', 'multinomial', 'bernoulli'])
+        needs_nonnegative = (nb_type == 'multinomial')
+    
+    # Add appropriate scaler before classifier
+    if needs_nonnegative:
+        # MinMaxScaler ensures non-negative features for MultinomialNB
+        feature_steps.append(('scaler', MinMaxScaler()))
+    else:
+        # StandardScaler for all other classifiers
+        feature_steps.append(('scaler', StandardScaler()))
     
     # Adaptive row sampling based on classifier complexity
     # Slower/more complex models get smaller samples for faster training
@@ -483,9 +495,7 @@ def generate_random_pipeline(
         )
     
     elif classifier_type == 'naive_bayes':
-        # Randomly select which Naive Bayes variant to use
-        nb_type = rng.choice(['gaussian', 'multinomial', 'bernoulli'])
-        
+        # Use the pre-selected nb_type from above
         if nb_type == 'gaussian':
             # Gaussian Naive Bayes (works well with continuous features)
             var_smoothing = 10 ** rng.uniform(-12, -6)  # 1e-12 to 1e-6
@@ -494,7 +504,7 @@ def generate_random_pipeline(
             )
         elif nb_type == 'multinomial':
             # Multinomial Naive Bayes (good for count/frequency features)
-            # Requires non-negative features, so works after certain transformers
+            # Requires non-negative features (handled by MinMaxScaler above)
             alpha = 10 ** rng.uniform(-2, 1)  # 0.01 to 10
             fit_prior = rng.choice([True, False])
             classifier = MultinomialNB(
