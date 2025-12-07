@@ -1,0 +1,7 @@
+[server]
+# Prevent browser from automatically opening
+headless = true
+
+[browser]
+# Don't automatically open browser
+gatherUsageStats = false
