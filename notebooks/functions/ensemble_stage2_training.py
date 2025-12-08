@@ -421,3 +421,224 @@ def save_ensemble_bundle(ensemble_models, stage2_model, best_ensemble_score, cur
     print(f"  Bundle checkpoint saved: {ensemble_bundle_path.name} ({ensemble_bundle_path.stat().st_size / (1024**2):.1f} MB)")
     
     return ensemble_bundle_path
+
+
+def generate_pseudo_labels(
+    ensemble_models, 
+    stage2_model, 
+    test_df, 
+    label_column='diagnosed_diabetes',
+    confidence_threshold=0.95,
+    max_samples=None,
+    balance_classes=True
+):
+    """
+    Generate pseudo-labels from high-confidence predictions on unlabeled test data.
+    
+    Parameters
+    ----------
+    ensemble_models : list
+        Trained Stage 1 ensemble models
+    stage2_model : keras.Model
+        Trained Stage 2 DNN meta-learner
+    test_df : pd.DataFrame
+        Unlabeled test data (competition test set)
+    label_column : str, default='diagnosed_diabetes'
+        Name of label column to create
+    confidence_threshold : float, default=0.95
+        Minimum prediction probability for inclusion (0.95 = very confident)
+    max_samples : int or None, default=None
+        Maximum number of pseudo-labeled samples to return
+        If None, returns all high-confidence samples
+    balance_classes : bool, default=True
+        Ensure pseudo-labeled samples have balanced class distribution
+    
+    Returns
+    -------
+    tuple : (X_pseudo, y_pseudo, stats)
+        - X_pseudo: DataFrame of pseudo-labeled features
+        - y_pseudo: Series of pseudo-labels (0 or 1)
+        - stats: Dict with statistics about pseudo-labeling
+    """
+    import pandas as pd
+    
+    print(f"\n{'=' * 80}")
+    print("PSEUDO-LABELING: Generating labels from test set")
+    print(f"{'=' * 80}")
+    print(f"Test set size: {len(test_df):,} samples")
+    print(f"Confidence threshold: {confidence_threshold:.2f}")
+    
+    # Generate Stage 1 predictions on test data
+    print("Generating Stage 1 predictions...")
+    all_stage1_preds = []
+    for i, model in enumerate(ensemble_models):
+        if hasattr(model, 'predict_proba'):
+            pred = model.predict_proba(test_df)[:, 1]
+        else:
+            pred = model.decision_function(test_df)
+        all_stage1_preds.append(pred)
+    
+    X_stage1_test = np.column_stack(all_stage1_preds)
+    
+    # Generate Stage 2 predictions (final ensemble predictions)
+    print("Generating Stage 2 predictions...")
+    stage2_probs = stage2_model.predict(X_stage1_test, verbose=0).flatten()
+    
+    # Filter high-confidence predictions
+    high_conf_positive = stage2_probs >= confidence_threshold
+    high_conf_negative = stage2_probs <= (1 - confidence_threshold)
+    high_conf_mask = high_conf_positive | high_conf_negative
+    
+    n_high_conf = high_conf_mask.sum()
+    n_positive = high_conf_positive.sum()
+    n_negative = high_conf_negative.sum()
+    
+    print(f"\nHigh-confidence predictions:")
+    print(f"  Total: {n_high_conf:,} ({n_high_conf/len(test_df)*100:.1f}%)")
+    print(f"  Positive (p ≥ {confidence_threshold:.2f}): {n_positive:,}")
+    print(f"  Negative (p ≤ {1-confidence_threshold:.2f}): {n_negative:,}")
+    
+    if n_high_conf == 0:
+        print("⚠️  WARNING: No high-confidence predictions found!")
+        return pd.DataFrame(), pd.Series(dtype=int), {'n_total': 0, 'n_positive': 0, 'n_negative': 0}
+    
+    # Create pseudo-labels
+    pseudo_labels = (stage2_probs >= 0.5).astype(int)
+    
+    # Filter to high-confidence samples
+    X_pseudo = test_df[high_conf_mask].copy()
+    y_pseudo = pd.Series(pseudo_labels[high_conf_mask], index=X_pseudo.index, name=label_column)
+    confidences = stage2_probs[high_conf_mask]
+    
+    # Balance classes if requested
+    if balance_classes and n_positive > 0 and n_negative > 0:
+        min_class_size = min(n_positive, n_negative)
+        
+        # Sample equal numbers from each class
+        positive_idx = y_pseudo[y_pseudo == 1].index
+        negative_idx = y_pseudo[y_pseudo == 0].index
+        
+        np.random.seed(315)  # For reproducibility
+        selected_positive = np.random.choice(positive_idx, size=min_class_size, replace=False)
+        selected_negative = np.random.choice(negative_idx, size=min_class_size, replace=False)
+        
+        selected_idx = np.concatenate([selected_positive, selected_negative])
+        X_pseudo = X_pseudo.loc[selected_idx]
+        y_pseudo = y_pseudo.loc[selected_idx]
+        
+        print(f"\nClass balancing:")
+        print(f"  Kept {min_class_size:,} samples per class")
+        print(f"  Total pseudo-labeled: {len(X_pseudo):,}")
+    
+    # Apply max_samples limit if specified
+    if max_samples is not None and len(X_pseudo) > max_samples:
+        # Keep highest confidence samples
+        conf_distances = np.abs(confidences.loc[X_pseudo.index] - 0.5)
+        conf_order = np.argsort(conf_distances)[::-1]  # Highest confidence first
+        keep_idx = conf_order[:max_samples]
+        X_pseudo = X_pseudo.iloc[keep_idx]
+        y_pseudo = y_pseudo.iloc[keep_idx]
+        
+        print(f"\nSample limit applied:")
+        print(f"  Kept {max_samples:,} highest-confidence samples")
+    
+    # Compute statistics
+    final_confidences = stage2_probs[X_pseudo.index]
+    stats = {
+        'n_total': len(X_pseudo),
+        'n_positive': (y_pseudo == 1).sum(),
+        'n_negative': (y_pseudo == 0).sum(),
+        'mean_confidence': np.mean(np.maximum(final_confidences, 1 - final_confidences)),
+        'min_confidence': confidence_threshold,
+        'test_set_size': len(test_df),
+        'coverage': len(X_pseudo) / len(test_df) * 100
+    }
+    
+    print(f"\nFinal pseudo-labeled dataset:")
+    print(f"  Total samples: {stats['n_total']:,}")
+    print(f"  Positive: {stats['n_positive']:,} ({stats['n_positive']/max(stats['n_total'], 1)*100:.1f}%)")
+    print(f"  Negative: {stats['n_negative']:,} ({stats['n_negative']/max(stats['n_total'], 1)*100:.1f}%)")
+    print(f"  Mean confidence: {stats['mean_confidence']:.3f}")
+    print(f"  Coverage: {stats['coverage']:.1f}% of test set")
+    print(f"{'=' * 80}\n")
+    
+    return X_pseudo, y_pseudo, stats
+
+
+def augment_training_pool_with_pseudo_labels(
+    X_train_pool, 
+    y_train_pool, 
+    X_pseudo, 
+    y_pseudo,
+    max_pseudo_fraction=0.20
+):
+    """
+    Augment training pool with pseudo-labeled data.
+    
+    Parameters
+    ----------
+    X_train_pool : pd.DataFrame
+        Original training pool
+    y_train_pool : pd.Series
+        Original training labels
+    X_pseudo : pd.DataFrame
+        Pseudo-labeled features
+    y_pseudo : pd.Series
+        Pseudo-labels
+    max_pseudo_fraction : float, default=0.20
+        Maximum fraction of pseudo-labeled data (0.20 = 20% of total)
+    
+    Returns
+    -------
+    tuple : (X_augmented, y_augmented, stats)
+        - X_augmented: Combined training data
+        - y_augmented: Combined labels
+        - stats: Dict with augmentation statistics
+    """
+    import pandas as pd
+    
+    print(f"\n{'=' * 80}")
+    print("AUGMENTING TRAINING POOL WITH PSEUDO-LABELS")
+    print(f"{'=' * 80}")
+    print(f"Original training pool: {len(X_train_pool):,} samples")
+    print(f"Pseudo-labeled samples: {len(X_pseudo):,} samples")
+    
+    # Check if pseudo-labeled data exceeds max fraction
+    max_pseudo_samples = int(len(X_train_pool) * max_pseudo_fraction / (1 - max_pseudo_fraction))
+    
+    if len(X_pseudo) > max_pseudo_samples:
+        print(f"\n⚠️  Limiting pseudo-labeled data to {max_pseudo_fraction*100:.0f}% of total:")
+        print(f"  Keeping {max_pseudo_samples:,} of {len(X_pseudo):,} pseudo-labeled samples")
+        
+        # Keep random sample
+        np.random.seed(315)
+        keep_idx = np.random.choice(len(X_pseudo), size=max_pseudo_samples, replace=False)
+        X_pseudo = X_pseudo.iloc[keep_idx]
+        y_pseudo = y_pseudo.iloc[keep_idx]
+    
+    # Combine datasets
+    X_augmented = pd.concat([X_train_pool, X_pseudo], ignore_index=True)
+    y_augmented = pd.concat([y_train_pool, y_pseudo], ignore_index=True)
+    
+    # Statistics
+    stats = {
+        'original_size': len(X_train_pool),
+        'pseudo_size': len(X_pseudo),
+        'augmented_size': len(X_augmented),
+        'pseudo_fraction': len(X_pseudo) / len(X_augmented),
+        'original_positive_rate': y_train_pool.mean(),
+        'pseudo_positive_rate': y_pseudo.mean() if len(y_pseudo) > 0 else 0,
+        'augmented_positive_rate': y_augmented.mean()
+    }
+    
+    print(f"\nAugmented training pool:")
+    print(f"  Total size: {stats['augmented_size']:,}")
+    print(f"  Original: {stats['original_size']:,} ({(1-stats['pseudo_fraction'])*100:.1f}%)")
+    print(f"  Pseudo-labeled: {stats['pseudo_size']:,} ({stats['pseudo_fraction']*100:.1f}%)")
+    print(f"\nClass distribution:")
+    print(f"  Original positive rate: {stats['original_positive_rate']:.3f}")
+    print(f"  Pseudo positive rate: {stats['pseudo_positive_rate']:.3f}")
+    print(f"  Augmented positive rate: {stats['augmented_positive_rate']:.3f}")
+    print(f"{'=' * 80}\n")
+    
+    return X_augmented, y_augmented, stats
