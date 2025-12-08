@@ -378,9 +378,9 @@ def adaptive_simulated_annealing_acceptance(
     temperature: float,
     random_state: Optional[int] = None,
     diversity_score: float = 0.0,
-    diversity_bonus_weight: float = 0.05
+    diversity_bonus_weight: float = 0.0
 ) -> Tuple[bool, str]:
-    """Determine acceptance using simulated annealing with diversity bonus.
+    """Determine acceptance using standard simulated annealing.
     
     Parameters
     ----------
@@ -393,9 +393,9 @@ def adaptive_simulated_annealing_acceptance(
     random_state : int or None, default=None
         Random state for reproducibility.
     diversity_score : float, default=0.0
-        Diversity measure (lower = more diverse)
-    diversity_bonus_weight : float, default=0.05
-        How much to reward diversity (e.g., 0.05 = accept if diversity compensates for 0.05 AUC loss)
+        Diversity measure (for logging only, not used in acceptance)
+    diversity_bonus_weight : float, default=0.0
+        Unused parameter (kept for backward compatibility)
     
     Returns
     -------
@@ -412,22 +412,13 @@ def adaptive_simulated_annealing_acceptance(
     if delta > 0:
         return True, f"improvement: Δ={delta:.6f}"
     
-    # Diversity bonus: lower diversity (more diverse) = positive bonus
-    # If diversity < 0.5, we get bonus; if diversity > 0.5, we get penalty
-    diversity_bonus = (0.5 - diversity_score) * diversity_bonus_weight
-    adjusted_delta = delta + diversity_bonus
-    
-    # Accept if diversity bonus makes up for performance loss
-    if adjusted_delta > 0:
-        return True, f"diversity_bonus: Δ={delta:.6f}, div={diversity_score:.3f}, bonus={diversity_bonus:.6f}"
-    
-    # Accept worse solutions with probability based on temperature
-    acceptance_probability = np.exp(adjusted_delta / temperature)
+    # Accept worse solutions probabilistically based on temperature
+    acceptance_probability = np.exp(delta / temperature)
     
     if rng.random() < acceptance_probability:
-        return True, f"simulated_annealing: Δ={delta:.6f}, div={diversity_score:.3f}, P={acceptance_probability:.6f}"
+        return True, f"simulated_annealing: Δ={delta:.6f}, P={acceptance_probability:.6f}"
     else:
-        return False, f"rejected: Δ={delta:.6f}, div={diversity_score:.3f}, P={acceptance_probability:.6f}"
+        return False, f"rejected: Δ={delta:.6f}, P={acceptance_probability:.6f}"
 
 
 def update_temperature(
