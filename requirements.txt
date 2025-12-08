@@ -10,6 +10,11 @@ psutil
 scikit-learn==1.5.2  # Updated for Python 3.12 (1.2.2 lacks pre-built wheels)
 tensorflow==2.18.0
 
+# GPU support (TensorFlow 2.18 with CUDA 12.x)
+nvidia-cudnn-cu12>=9.3.0  # cuDNN library for GPU acceleration
+nvidia-cuda-runtime-cu12  # CUDA runtime
+nvidia-cublas-cu12  # cuBLAS library
+
 # Note: scikit-learn 1.5.2 for Python 3.12 compatibility (Kaggle uses 1.2.2)
 # All other versions match Kaggle environment as of December 2025
 
