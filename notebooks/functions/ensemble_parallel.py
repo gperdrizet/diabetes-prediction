@@ -18,96 +18,6 @@ from multiprocessing import Process, Queue
 from .ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash
 
 
-def _train_worker(args, result_queue):
-    """
-    Worker function that trains a model and puts result in queue.
-    Runs in a separate process that can be forcefully terminated.
-    
-    Parameters
-    ----------
-    args : tuple
-        Training arguments
-    result_queue : multiprocessing.Queue
-        Queue to put the result in
-    """
-    iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs = args
-    
-    try:
-        # Suppress expected warnings from random hyperparameter exploration
-        warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.decomposition._fastica')
-        warnings.filterwarnings('ignore', message='.*FastICA did not converge.*')
-        
-        start_time = time.time()
-        process = psutil.Process(os.getpid())
-        start_memory = process.memory_info().rss / (1024 ** 2)  # MB
-        
-        # Generate random pipeline with allocated CPU cores
-        pipeline, metadata = generate_random_pipeline(
-            iteration=iteration,
-            random_state=random_state,
-            base_preprocessor=base_preprocessor,
-            n_jobs=n_jobs
-        )
-        
-        # Print model configuration before training starts
-        classifier = pipeline.named_steps['classifier']
-        classifier_type = metadata['classifier_type']
-        sample_size = len(X_train_sample)
-        
-        print(f"\n[Iteration {iteration}] Training {classifier_type}")
-        print(f"  Sample size: {sample_size} rows ({metadata['row_sample_pct']*100:.1f}%)")
-        print(f"  Feature sampling: {metadata['col_sample_pct']*100:.1f}%")
-        print(f"  Transformers: {', '.join(metadata['transformers_used']) if metadata['transformers_used'] else 'None'}")
-        
-        # Print classifier hyperparameters
-        classifier_params = classifier.get_params()
-        # Filter out non-hyperparameter items (objects, None values)
-        relevant_params = {k: v for k, v in classifier_params.items() 
-                          if not k.startswith('_') and v is not None 
-                          and not callable(v) and not isinstance(v, (type, object))}
-        # Further filter to show only key params (not nested estimator details)
-        key_params = {k: v for k, v in relevant_params.items() if '__' not in k}
-        
-        if key_params:
-            print(f"  Hyperparameters: {key_params}")
-        
-        # Train pipeline on pre-sampled data
-        fitted_pipeline = pipeline.fit(X_train_sample, y_train_sample)
-        
-        # Track peak memory
-        peak_memory = process.memory_info().rss / (1024 ** 2)  # MB
-        memory_used = peak_memory - start_memory
-        
-        # Evaluate on stage 1 validation
-        if hasattr(fitted_pipeline, 'predict_proba'):
-            val_pred_s1 = fitted_pipeline.predict_proba(X_val_s1)[:, 1]
-        else:
-            val_pred_s1 = fitted_pipeline.decision_function(X_val_s1)
-        
-        val_auc_s1 = roc_auc_score(y_val_s1, val_pred_s1)
-        
-        # Compute hash
-        pipeline_hash = compute_pipeline_hash(fitted_pipeline, metadata)
-        
-        training_time = time.time() - start_time
-        
-        result = {
-            'iteration': iteration,
-            'fitted_pipeline': fitted_pipeline,
-            'metadata': metadata,
-            'val_auc_s1': val_auc_s1,
-            'pipeline_hash': pipeline_hash,
-            'training_time': training_time,
-            'memory_mb': memory_used,
-            'training_time_sec': training_time
-        }
-        
-        result_queue.put(('success', result))
-        
-    except Exception as e:
-        result_queue.put(('error', str(e)))
-
-
 def train_single_candidate(args):
     """
     Train a single candidate with robust timeout handling.
@@ -168,6 +78,82 @@ def train_single_candidate(args):
         raise Exception(result)
     
     return result
+
+
+def _train_worker(args, result_queue):
+    """
+    Worker function that trains a model and puts result in queue.
+    Runs in a separate process that can be forcefully terminated.
+    
+    Parameters
+    ----------
+    args : tuple
+        Training arguments
+    result_queue : multiprocessing.Queue
+        Queue to put the result in
+    """
+    iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs = args
+    
+    try:
+        # Suppress expected warnings from random hyperparameter exploration
+        warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.decomposition._fastica')
+        warnings.filterwarnings('ignore', message='.*FastICA did not converge.*')
+        
+        start_time = time.time()
+        process = psutil.Process(os.getpid())
+        start_memory = process.memory_info().rss / (1024 ** 2)  # MB
+        
+        # Generate random pipeline with allocated CPU cores
+        pipeline, metadata = generate_random_pipeline(
+            iteration=iteration,
+            random_state=random_state,
+            base_preprocessor=base_preprocessor,
+            n_jobs=n_jobs
+        )
+        
+        # Print model configuration before training starts
+        classifier_type = metadata['classifier_type']
+        sample_size = len(X_train_sample)
+        
+        print(f"\n[Iteration {iteration}] Training {classifier_type} + {', '.join(metadata['transformers_used']) if metadata['transformers_used'] else 'None'}, Sample size: {sample_size} rows ({metadata['row_sample_pct']*100:.1f}%)")
+        print(f"  Feature sampling: {metadata['col_sample_pct']*100:.1f}%")
+     
+        # Train pipeline on pre-sampled data
+        fitted_pipeline = pipeline.fit(X_train_sample, y_train_sample)
+        
+        # Track peak memory
+        peak_memory = process.memory_info().rss / (1024 ** 2)  # MB
+        memory_used = peak_memory - start_memory
+        
+        # Evaluate on stage 1 validation
+        if hasattr(fitted_pipeline, 'predict_proba'):
+            val_pred_s1 = fitted_pipeline.predict_proba(X_val_s1)[:, 1]
+
+        else:
+            val_pred_s1 = fitted_pipeline.decision_function(X_val_s1)
+        
+        val_auc_s1 = roc_auc_score(y_val_s1, val_pred_s1)
+        
+        # Compute hash
+        pipeline_hash = compute_pipeline_hash(fitted_pipeline, metadata)
+        
+        training_time = time.time() - start_time
+        
+        result = {
+            'iteration': iteration,
+            'fitted_pipeline': fitted_pipeline,
+            'metadata': metadata,
+            'val_auc_s1': val_auc_s1,
+            'pipeline_hash': pipeline_hash,
+            'training_time': training_time,
+            'memory_mb': memory_used,
+            'training_time_sec': training_time
+        }
+        
+        result_queue.put(('success', result))
+        
+    except Exception as e:
+        result_queue.put(('error', str(e)))
 
 
 def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, y_train_pool,

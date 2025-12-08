@@ -63,12 +63,6 @@ def create_data_splits(train_df, label, random_state):
         stratify=y_val_combined
     )
     
-    print(f"\nFixed data split:")
-    print("-" * 80)
-    print(f"  Training pool: {len(X_train_pool):,} samples (60%)")
-    print(f"  Stage 1 validation: {len(X_val_s1):,} samples (20%) - for stage 1 eval & stage 2 training")
-    print(f"  Stage 2 validation: {len(X_val_s2):,} samples (20%) - for stage 2 eval (HELD OUT)")
-    
     return X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1, y_val_s2
 
 
@@ -97,7 +91,6 @@ def create_base_preprocessor(numerical_features, ordinal_features, nominal_featu
     """
     # Create numerical pipeline
     numerical_pipeline = Pipeline([
-        ('clipper', IQRClipper(iqr_multiplier=2.0)),
         ('scaler', StandardScaler())
     ])
     

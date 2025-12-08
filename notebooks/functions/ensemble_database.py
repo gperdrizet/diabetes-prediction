@@ -19,7 +19,7 @@ from typing import Optional, Dict, List
 import pandas as pd
 
 # Database path - use relative path from project root
-DB_PATH = '/mnt/arkk/kaggle/diabetes-prediction/data/ensemble_training.db'
+DB_PATH = Path(__file__).parent.parent.parent / 'data' / 'ensemble_training.db'
 
 def reset_database() -> None:
     """Delete the database file if it exists to start fresh.
