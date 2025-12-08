@@ -289,42 +289,13 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
     X_val_s2_holdout = X_stage2_s2_val
     y_val_s2_holdout = y_stage2_s2_val
     
-    if stage2_model is None:
-        # First DNN training - use config architecture
-        print(f"\n  Building initial stage 2 DNN from config...")
-        config = ensemble_config.STAGE2_DNN_CONFIG
-        stage2_model = build_stage2_dnn(
-            n_models=len(ensemble_models),
-            config=config
-        )
-    else:
-        # Transfer learning: build new DNN with more inputs, copy weights where possible
-        print(f"\n  Transfer learning: expanding DNN from {stage2_model.input_shape[1]} to {len(ensemble_models)} inputs...")
-        
-        # Save old weights
-        old_weights = stage2_model.get_weights()
-        
-        # Build new model from config
-        config = ensemble_config.STAGE2_DNN_CONFIG
-        new_model = build_stage2_dnn(
-            n_models=len(ensemble_models),
-            config=config
-        )
-        
-        # Transfer weights: copy input layer weights for existing models
-        new_weights = new_model.get_weights()
-        old_n_models = old_weights[0].shape[0]
-        new_weights[0][:old_n_models, :] = old_weights[0]  # Copy old input weights
-        new_weights[1] = old_weights[1]  # Copy input bias
-        
-        # Copy subsequent layer weights if shapes match
-        if len(old_weights) > 2 and len(new_weights) > 2:
-            for i in range(2, len(old_weights)):
-                if old_weights[i].shape == new_weights[i].shape:
-                    new_weights[i] = old_weights[i]
-        
-        new_model.set_weights(new_weights)
-        stage2_model = new_model
+    # Build fresh DNN from optimized config (re-optimization makes transfer learning pointless)
+    print(f"\n  Building stage 2 DNN from optimized config...")
+    config = ensemble_config.STAGE2_DNN_CONFIG
+    stage2_model = build_stage2_dnn(
+        n_models=len(ensemble_models),
+        config=config
+    )
     
     print(f"\n  Training stage 2 DNN (conservative: 95% train, 5% val)...")
     print(f"    Training samples: {len(X_train_s2):,} (X_val_s1 + 90% X_val_s2)")

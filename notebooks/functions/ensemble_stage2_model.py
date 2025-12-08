@@ -209,7 +209,7 @@ def optimize_stage2_hyperparameters(
     """
     # Import keras_tuner only when this function is called
     try:
-        from keras_tuner import RandomSearch
+        from keras_tuner import RandomSearch, Objective
     except ImportError:
         raise ImportError(
             "keras_tuner is required for hyperparameter optimization. "
@@ -257,7 +257,7 @@ def optimize_stage2_hyperparameters(
     # Create tuner
     tuner = RandomSearch(
         build_model,
-        objective=keras.tuner.Objective('val_auc', direction='max'),
+        objective=Objective('val_auc', direction='max'),
         max_trials=max_trials,
         executions_per_trial=executions_per_trial,
         directory=str(directory),
