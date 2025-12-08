@@ -82,7 +82,7 @@ CLASSIFIER_CONFIGS = {
     'sgd_classifier': {
         'class': SGDClassifier,
         'hyperparameters': {
-            'loss': lambda rng: rng.choice(['hinge', 'log_loss', 'modified_huber', 'perceptron']),
+            'loss': lambda rng: rng.choice(['log_loss', 'modified_huber']),  # Both support predict_proba
             'penalty': lambda rng: rng.choice(['l2', 'l1', 'elasticnet']),
             'alpha': lambda rng: 10 ** rng.uniform(-5, -1),
             'learning_rate': lambda rng: rng.choice(['optimal', 'adaptive', 'constant']),

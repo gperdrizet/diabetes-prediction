@@ -18,6 +18,7 @@ from . import ensemble_config
 import pandas as pd
 from scipy.stats import uniform, loguniform, randint
 from sklearn.base import clone
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.decomposition import PCA, TruncatedSVD, FastICA, NMF, FactorAnalysis
 from sklearn.ensemble import (
     RandomForestClassifier, HistGradientBoostingClassifier,
@@ -275,6 +276,11 @@ def generate_random_pipeline(
     
     # Create classifier instance
     classifier = ClassifierClass(**hyperparams)
+    
+    # Wrap classifiers without predict_proba in CalibratedClassifierCV
+    # This ensures Stage 2 DNN gets proper [0,1] probabilities as input
+    if classifier_type in ['linear_svc', 'ridge']:
+        classifier = CalibratedClassifierCV(classifier, cv=3, method='sigmoid')
     
     # Build complete pipeline
     pipeline = Pipeline([
