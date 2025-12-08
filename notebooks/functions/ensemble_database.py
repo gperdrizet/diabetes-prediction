@@ -75,7 +75,11 @@ def init_database() -> None:
             stage2_memory_mb REAL,
             training_time_sec REAL,
             stage2_time_sec REAL,
-            timeout INTEGER DEFAULT 0
+            timeout INTEGER DEFAULT 0,
+            stage2_tp INTEGER,
+            stage2_fp INTEGER,
+            stage2_tn INTEGER,
+            stage2_fn INTEGER
         )
     ''')
     
@@ -98,6 +102,27 @@ def init_database() -> None:
     conn.execute('CREATE INDEX IF NOT EXISTS idx_ensemble_id ON ensemble_log(ensemble_id)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_stage2_ensemble ON stage2_log(ensemble_id)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_stage2_epoch ON stage2_log(epoch)')
+    
+    # Add confusion matrix columns if they don't exist (for existing databases)
+    try:
+        conn.execute('ALTER TABLE ensemble_log ADD COLUMN stage2_tp INTEGER')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        conn.execute('ALTER TABLE ensemble_log ADD COLUMN stage2_fp INTEGER')
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        conn.execute('ALTER TABLE ensemble_log ADD COLUMN stage2_tn INTEGER')
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        conn.execute('ALTER TABLE ensemble_log ADD COLUMN stage2_fn INTEGER')
+    except sqlite3.OperationalError:
+        pass
     
     conn.commit()
     conn.close()
@@ -138,8 +163,8 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
                 diversity_score, temperature, accepted, rejection_reason,
                 num_models, classifier_type, transformers_used, use_pca, pca_components,
                 pipeline_hash, training_memory_mb, stage2_memory_mb, training_time_sec, stage2_time_sec,
-                timeout
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                timeout, stage2_tp, stage2_fp, stage2_tn, stage2_fn
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             iteration_data['timestamp'],
             iteration_data['iteration_num'],
@@ -160,7 +185,11 @@ def insert_ensemble_iteration(iteration_data: Dict) -> None:
             iteration_data.get('stage2_memory_mb'),
             iteration_data.get('training_time_sec'),
             iteration_data.get('stage2_time_sec'),
-            iteration_data.get('timeout', 0)
+            iteration_data.get('timeout', 0),
+            iteration_data.get('stage2_tp'),
+            iteration_data.get('stage2_fp'),
+            iteration_data.get('stage2_tn'),
+            iteration_data.get('stage2_fn')
         ))
         conn.commit()
     finally:

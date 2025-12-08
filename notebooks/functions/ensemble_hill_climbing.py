@@ -503,7 +503,11 @@ def log_iteration(
     stage2_memory_mb: Optional[float] = None,
     training_time_sec: Optional[float] = None,
     stage2_time_sec: Optional[float] = None,
-    timeout: bool = False
+    timeout: bool = False,
+    stage2_tp: Optional[int] = None,
+    stage2_fp: Optional[int] = None,
+    stage2_tn: Optional[int] = None,
+    stage2_fn: Optional[int] = None
 ) -> None:
     """Log iteration details to SQLite database for dashboard monitoring.
     
@@ -541,6 +545,14 @@ def log_iteration(
         Time spent training stage 2 DNN (seconds).
     timeout : bool, optional
         Whether training timed out (default: False).
+    stage2_tp : int, optional
+        Stage 2 confusion matrix: true positives.
+    stage2_fp : int, optional
+        Stage 2 confusion matrix: false positives.
+    stage2_tn : int, optional
+        Stage 2 confusion matrix: true negatives.
+    stage2_fn : int, optional
+        Stage 2 confusion matrix: false negatives.
     """
     try:
         # Serialize transformers list to comma-separated string
@@ -566,7 +578,11 @@ def log_iteration(
             'stage2_memory_mb': stage2_memory_mb,
             'training_time_sec': training_time_sec,
             'stage2_time_sec': stage2_time_sec,
-            'timeout': 1 if timeout else 0
+            'timeout': 1 if timeout else 0,
+            'stage2_tp': stage2_tp,
+            'stage2_fp': stage2_fp,
+            'stage2_tn': stage2_tn,
+            'stage2_fn': stage2_fn
         }
         
         ensemble_database.insert_ensemble_iteration(iteration_data)

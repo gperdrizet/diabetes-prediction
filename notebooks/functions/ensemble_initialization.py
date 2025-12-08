@@ -39,13 +39,13 @@ def create_data_splits(train_df, label, random_state):
     -------
     tuple : (X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1, y_val_s2)
         - X_train_pool, y_train_pool: 60% for training stage 1 models
-        - X_val_s1, y_val_s1: 20% for evaluating stage 1 models and training stage 2
-        - X_val_s2, y_val_s2: 20% for evaluating stage 2 model (held out)
+        - X_val_s1, y_val_s1: 35% for evaluating stage 1 models and training stage 2
+        - X_val_s2, y_val_s2: 5% for evaluating stage 2 model (held out)
     """
     X_full = train_df.drop(columns=[label])
     y_full = train_df[label]
     
-    # First split: training pool vs validation
+    # First split: training pool vs validation (60-40)
     X_train_pool, X_val_combined, y_train_pool, y_val_combined = train_test_split(
         X_full, 
         y_full, 
@@ -54,11 +54,11 @@ def create_data_splits(train_df, label, random_state):
         stratify=y_full
     )
     
-    # Second split: stage 1 validation vs stage 2 validation
+    # Second split: stage 1 validation vs stage 2 validation (35-5 from the 40%)
     X_val_s1, X_val_s2, y_val_s1, y_val_s2 = train_test_split(
         X_val_combined,
         y_val_combined,
-        test_size=0.5,
+        test_size=0.125,  # 0.125 * 40% = 5% of total
         random_state=random_state,
         stratify=y_val_combined
     )

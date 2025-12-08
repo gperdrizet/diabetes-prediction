@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 
 from .ensemble_stage2_model import (
-    build_stage2_dnn, train_stage2_dnn, evaluate_ensemble, optimize_stage2_hyperparameters
+    build_stage2_dnn, train_stage2_dnn, evaluate_ensemble, evaluate_ensemble_with_cm, optimize_stage2_hyperparameters
 )
 from . import ensemble_database
 from . import ensemble_config
@@ -194,11 +194,15 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
     
     Returns
     -------
-    tuple : (stage2_model, final_score, memory_used, elapsed_time)
+    tuple : (stage2_model, final_score, memory_used, elapsed_time, stage2_tp, stage2_fp, stage2_tn, stage2_fn)
         - stage2_model: trained DNN model
         - final_score: AUC on stage 2 validation set
         - memory_used: Memory used in MB
         - elapsed_time: Time elapsed in seconds
+        - stage2_tp: Confusion matrix true positives
+        - stage2_fp: Confusion matrix false positives
+        - stage2_tn: Confusion matrix true negatives
+        - stage2_fn: Confusion matrix false negatives
     """
     # Check if we should run hyperparameter optimization
     batch_number = len(ensemble_models) // ensemble_config.STAGE2_DNN_CONFIG['retrain_frequency']
@@ -322,7 +326,7 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
     )
     
     # Evaluate on held out stage 2 validation
-    final_score = evaluate_ensemble(
+    final_score, stage2_tn, stage2_fp, stage2_fn, stage2_tp = evaluate_ensemble_with_cm(
         stage1_models=ensemble_models,
         stage2_model=stage2_model,
         X=X_val_s2,
@@ -336,10 +340,11 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
     
     print(f"\n  Stage 2 DNN trained!")
     print(f"  DNN ensemble AUC: {final_score:.6f}")
+    print(f"  Confusion matrix: TP={stage2_tp}, FP={stage2_fp}, TN={stage2_tn}, FN={stage2_fn}")
     print(f"  Memory used: {memory_used:.1f} MB")
     print(f"  Time elapsed: {elapsed_time:.1f}s")
     
-    return stage2_model, final_score, memory_used, elapsed_time
+    return stage2_model, final_score, memory_used, elapsed_time, stage2_tp, stage2_fp, stage2_tn, stage2_fn
 
 
 def save_ensemble_bundle(ensemble_models, stage2_model, best_ensemble_score, current_iter,

@@ -15,7 +15,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers, models, callbacks
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, confusion_matrix
 
 from . import ensemble_database
 
@@ -455,6 +455,77 @@ def evaluate_ensemble(
     roc_auc = roc_auc_score(y, stage2_predictions)
     
     return roc_auc
+
+
+def evaluate_ensemble_with_cm(
+    stage1_models: List[Any],
+    stage2_model: models.Sequential,
+    X: np.ndarray,
+    y: np.ndarray,
+    threshold: float = 0.5
+) -> Tuple[float, int, int, int, int]:
+    """Evaluate ensemble performance with confusion matrix.
+    
+    Parameters
+    ----------
+    stage1_models : list of pipelines
+        List of stage 1 sklearn pipelines.
+    stage2_model : Sequential
+        Stage 2 Keras model.
+    X : np.ndarray or pd.DataFrame
+        Input features.
+    y : np.ndarray or pd.Series
+        True labels.
+    threshold : float, default=0.5
+        Classification threshold for confusion matrix.
+    
+    Returns
+    -------
+    roc_auc : float
+        ROC-AUC score on the validation set.
+    tn : int
+        True negatives.
+    fp : int
+        False positives.
+    fn : int
+        False negatives.
+    tp : int
+        True positives.
+    """
+    # Generate stage 1 predictions
+    stage1_predictions = []
+    
+    for model in stage1_models:
+        try:
+            # Get probability predictions
+            if hasattr(model, 'predict_proba'):
+                pred_proba = model.predict_proba(X)[:, 1]
+            else:
+                pred_proba = model.decision_function(X)
+            
+            stage1_predictions.append(pred_proba)
+        except Exception as e:
+            print(f"Error generating predictions: {e}")
+            # Use zeros if prediction fails
+            stage1_predictions.append(np.zeros(len(X)))
+    
+    # Stack predictions
+    stage1_predictions = np.column_stack(stage1_predictions)
+    
+    # Get stage 2 predictions
+    stage2_predictions = stage2_model.predict(stage1_predictions, verbose=0).flatten()
+    
+    # Calculate ROC-AUC
+    roc_auc = roc_auc_score(y, stage2_predictions)
+    
+    # Calculate confusion matrix
+    y_pred_binary = (stage2_predictions >= threshold).astype(int)
+    cm = confusion_matrix(y, y_pred_binary)
+    
+    # Extract values: [[TN, FP], [FN, TP]]
+    tn, fp, fn, tp = cm.ravel()
+    
+    return roc_auc, int(tn), int(fp), int(fn), int(tp)
 
 
 def save_checkpoint(
