@@ -270,8 +270,10 @@ if page == "Performance":
             hovertemplate='Iter %{x}<br>Stage 2 AUC: %{y:.4f}<extra></extra>'
         ))
         
-        # Add batch boundaries (every 10 accepted models)
-        batch_iterations = accepted_df[accepted_df.index % 10 == 9]['iteration_num'].values
+        # Add batch boundaries (every 10 accepted models) using num_models column
+        # Filter to rows where num_models is a multiple of 10
+        batch_rows = accepted_df[accepted_df['num_models'] % 10 == 0]
+        batch_iterations = batch_rows['iteration_num'].values
         
         for batch_iter in batch_iterations:
             fig_combined.add_vline(
