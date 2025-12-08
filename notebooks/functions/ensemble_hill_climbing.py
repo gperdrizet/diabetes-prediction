@@ -348,7 +348,7 @@ def generate_random_pipeline(
     
     # Select classifier first to determine scaling strategy
     classifier_options = [
-        'logistic_regression',
+        'logistic',
         'random_forest',
         'linear_svc',
         'sgd_classifier',
@@ -356,7 +356,8 @@ def generate_random_pipeline(
         'adaboost',
         'naive_bayes',
         'lda',
-        'qda'
+        'qda',
+        'ridge'
         # TEMPORARILY DISABLED (too slow - hold up entire batch):
         # 'gradient_boosting',  # Sequential tree building is very slow
         # 'mlp',                # Neural network with multiple layers is very slow
@@ -387,7 +388,7 @@ def generate_random_pipeline(
     row_sample_pct = rng.uniform(0.10, 0.40)
     
     # Create classifier with random hyperparameters (wide distributions for diversity)
-    if classifier_type == 'logistic_regression':
+    if classifier_type == 'logistic':
         # SPEED FIX: Reduced max_iter and narrowed C range to prevent timeouts
         penalty = rng.choice(['l2', None])  # Removed l1 (slower with liblinear)
         
