@@ -380,24 +380,21 @@ def generate_random_pipeline(
         # StandardScaler for all other classifiers
         feature_steps.append(('scaler', StandardScaler()))
     
-    # DIVERSITY BOOST: Uniform low row sampling for ALL classifiers (1.25-15%)
-    # SPEED FIX: Reduced by factor of 2 to prevent 30min+ timeouts
-    # This gives sample sizes of ~300 to 3,600 rows (from ~24,000 pool)
-    # Minimal overlap ensures maximum diversity
-    row_sample_pct = rng.uniform(0.0125, 0.15)
+    # Row sampling for training: balanced between model quality and diversity
+    # Higher sampling = stronger individual models, lower sampling = more diversity
+    # This gives sample sizes of ~2,400 to 9,600 rows (from ~24,000 pool)
+    # Provides good balance: models learn enough to be useful while maintaining diversity
+    row_sample_pct = rng.uniform(0.10, 0.40)
     
     # Create classifier with random hyperparameters (wide distributions for diversity)
     if classifier_type == 'logistic_regression':
-        # SPEED FIX: Removed saga solver (too slow), kept fast solvers only
-        penalty = rng.choice(['l1', 'l2', None])
+        # SPEED FIX: Reduced max_iter and narrowed C range to prevent timeouts
+        penalty = rng.choice(['l2', None])  # Removed l1 (slower with liblinear)
         
-        # Fast solvers only - no saga or sag
-        if penalty == 'l1':
-            solver = 'liblinear'  # Only fast solver for l1
-            C = 10 ** rng.uniform(-3, 2)  # 0.001 to 100
-        elif penalty == 'l2':
-            solver = rng.choice(['lbfgs', 'liblinear', 'newton-cg'])  # Fast solvers for l2
-            C = 10 ** rng.uniform(-3, 2)  # 0.001 to 100
+        # Fast solvers only - no saga, sag, or liblinear
+        if penalty == 'l2':
+            solver = rng.choice(['lbfgs', 'newton-cg'])  # Fastest solvers for l2
+            C = 10 ** rng.uniform(-1, 1)  # 0.1 to 10 (narrower range for speed)
         else:  # penalty is None
             solver = rng.choice(['lbfgs', 'newton-cg'])  # Fast solvers for no penalty
             C = 1.0  # C is ignored when penalty=None, set to default to avoid warning
@@ -406,8 +403,9 @@ def generate_random_pipeline(
             C=C,
             penalty=penalty,
             solver=solver,
-            max_iter=rng.choice([500, 1000]),  # Reasonable iterations
-            class_weight='balanced'
+            max_iter=rng.choice([100, 200, 300]),  # Reduced from 500-1000 for speed
+            class_weight='balanced',
+            tol=1e-3  # Relaxed tolerance for faster convergence
             # No random_state for diversity
         )
     
@@ -513,11 +511,12 @@ def generate_random_pipeline(
         )
     
     elif classifier_type == 'extra_trees':
-        n_estimators = int(10 ** rng.uniform(1.0, 2.0))  # ~10 to 100
-        max_depth = rng.choice([3, 5, 7, 10, 15, 20, None])  # Reduced deep trees for speed
-        min_samples_split = int(10 ** rng.uniform(0.3, 1.3))  # 2 to 20
-        min_samples_leaf = int(10 ** rng.uniform(0, 1))  # 1 to 10
-        max_features = rng.choice(['sqrt', 'log2', None])
+        # SPEED FIX: Reduced n_estimators and max_depth to prevent timeouts
+        n_estimators = int(10 ** rng.uniform(0.7, 1.5))  # ~5 to 30 (was 10-100)
+        max_depth = rng.choice([3, 5, 7, 10])  # Max 10, removed None and deep trees (was up to 20/None)
+        min_samples_split = int(10 ** rng.uniform(0.7, 1.5))  # 5 to 30 (increased for speed)
+        min_samples_leaf = int(10 ** rng.uniform(0.5, 1.3))  # 3 to 20 (increased for speed)
+        max_features = rng.choice(['sqrt', 'log2'])  # Removed None (faster with feature subsampling)
         # Use allocated cores for parallel tree building
         classifier = ExtraTreesClassifier(
             n_estimators=n_estimators,
@@ -526,7 +525,8 @@ def generate_random_pipeline(
             min_samples_leaf=min_samples_leaf,
             max_features=max_features,
             class_weight='balanced',
-            n_jobs=n_jobs if n_jobs > 1 else 1
+            n_jobs=n_jobs if n_jobs > 1 else 1,
+            min_impurity_decrease=1e-7  # Early stopping for faster training
             # No random_state for diversity
         )
     
@@ -638,6 +638,20 @@ def generate_random_pipeline(
             # No random_state parameter
         )
     
+    elif classifier_type == 'ridge':
+        # Ridge Classifier - fast L2-regularized linear model
+        # Very fast training, good baseline performance
+        alpha = 10 ** rng.uniform(-2, 2)  # 0.01 to 100
+        solver = rng.choice(['auto', 'cholesky', 'lsqr'])  # Fast solvers
+        
+        classifier = RidgeClassifier(
+            alpha=alpha,
+            solver=solver,
+            class_weight='balanced',
+            tol=1e-3  # Relaxed tolerance for faster convergence
+            # No random_state parameter
+        )
+    
     # Build complete pipeline
     pipeline = Pipeline([
         ('preprocessor', clone(base_preprocessor)),  # Clone to avoid sharing fitted state
@@ -740,9 +754,11 @@ def adaptive_simulated_annealing_acceptance(
     current_score: float,
     candidate_score: float,
     temperature: float,
-    random_state: Optional[int] = None
+    random_state: Optional[int] = None,
+    diversity_score: float = 0.0,
+    diversity_bonus_weight: float = 0.05
 ) -> Tuple[bool, str]:
-    """Determine acceptance using simulated annealing with adaptive temperature.
+    """Determine acceptance using simulated annealing with diversity bonus.
     
     Parameters
     ----------
@@ -754,6 +770,10 @@ def adaptive_simulated_annealing_acceptance(
         Current temperature parameter.
     random_state : int or None, default=None
         Random state for reproducibility.
+    diversity_score : float, default=0.0
+        Diversity measure (lower = more diverse)
+    diversity_bonus_weight : float, default=0.05
+        How much to reward diversity (e.g., 0.05 = accept if diversity compensates for 0.05 AUC loss)
     
     Returns
     -------
@@ -770,13 +790,22 @@ def adaptive_simulated_annealing_acceptance(
     if delta > 0:
         return True, f"improvement: Δ={delta:.6f}"
     
+    # Diversity bonus: lower diversity (more diverse) = positive bonus
+    # If diversity < 0.5, we get bonus; if diversity > 0.5, we get penalty
+    diversity_bonus = (0.5 - diversity_score) * diversity_bonus_weight
+    adjusted_delta = delta + diversity_bonus
+    
+    # Accept if diversity bonus makes up for performance loss
+    if adjusted_delta > 0:
+        return True, f"diversity_bonus: Δ={delta:.6f}, div={diversity_score:.3f}, bonus={diversity_bonus:.6f}"
+    
     # Accept worse solutions with probability based on temperature
-    acceptance_probability = np.exp(delta / temperature)
+    acceptance_probability = np.exp(adjusted_delta / temperature)
     
     if rng.random() < acceptance_probability:
-        return True, f"simulated_annealing: Δ={delta:.6f}, P={acceptance_probability:.6f}"
+        return True, f"simulated_annealing: Δ={delta:.6f}, div={diversity_score:.3f}, P={acceptance_probability:.6f}"
     else:
-        return False, f"rejected: Δ={delta:.6f}, P={acceptance_probability:.6f}"
+        return False, f"rejected: Δ={delta:.6f}, div={diversity_score:.3f}, P={acceptance_probability:.6f}"
 
 
 def update_temperature(

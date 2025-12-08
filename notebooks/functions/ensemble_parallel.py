@@ -294,8 +294,8 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         # Use same logic as generate_random_pipeline for row_sample_pct
         rng = np.random.RandomState(random_state + current_iter)
         
-        # Sample based on actual range used in generate_random_pipeline (1.25% - 15%)
-        row_sample_pct = rng.uniform(0.0125, 0.15)
+        # Sample based on actual range used in generate_random_pipeline (10% - 40%)
+        row_sample_pct = rng.uniform(0.10, 0.40)
         n_total = len(X_train_pool)
         n_sample = max(100, int(n_total * row_sample_pct))
         
