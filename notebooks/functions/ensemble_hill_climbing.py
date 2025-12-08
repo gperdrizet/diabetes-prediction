@@ -14,6 +14,7 @@ from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 
 from . import ensemble_database
+from . import ensemble_config
 import pandas as pd
 from scipy.stats import uniform, loguniform, randint
 from sklearn.base import clone
@@ -41,12 +42,60 @@ from .ensemble_transformers import (
     BinningTransformer, KDESmoothingTransformer, KMeansClusterTransformer, NoiseInjector
 )
 
-# Import from models directory for constant feature removal
+# Import from models directory for constant feature removal and IQR clipping
 import sys
 from pathlib import Path
 models_path = Path(__file__).resolve().parent.parent.parent / 'models'
 sys.path.insert(0, str(models_path))
-from logistic_regression_transformers import ConstantFeatureRemover
+from logistic_regression_transformers import ConstantFeatureRemover, IQRClipper
+
+
+def _generate_hyperparameters(rng: np.random.RandomState, hyperparam_config: Dict, **context) -> Dict:
+    """Generate hyperparameters from config lambda functions.
+    
+    Parameters
+    ----------
+    rng : np.random.RandomState
+        Random number generator.
+    hyperparam_config : dict
+        Dictionary of hyperparameter name to lambda function or constant value.
+    **context : dict
+        Context variables that may be needed by dependent hyperparameters
+        (e.g., n_jobs, n_layers, solver, kernel, etc.)
+    
+    Returns
+    -------
+    hyperparams : dict
+        Dictionary of hyperparameter name to generated value.
+    """
+    hyperparams = {}
+    
+    for param_name, param_value in hyperparam_config.items():
+        if callable(param_value):
+            # Get the function signature to determine what arguments it needs
+            import inspect
+            sig = inspect.signature(param_value)
+            param_names = list(sig.parameters.keys())
+            
+            # Build kwargs for the lambda based on what it needs
+            kwargs = {}
+            if 'rng' in param_names:
+                kwargs['rng'] = rng
+            # Add any other context variables the lambda might need
+            for ctx_key, ctx_value in context.items():
+                if ctx_key in param_names:
+                    kwargs[ctx_key] = ctx_value
+            # Also add any previously generated hyperparameters (for dependent params)
+            for prev_key, prev_value in hyperparams.items():
+                if prev_key in param_names:
+                    kwargs[prev_key] = prev_value
+            
+            hyperparams[param_name] = param_value(**kwargs)
+        else:
+            # Constant value
+            hyperparams[param_name] = param_value
+    
+    return hyperparams
 
 
 def generate_random_pipeline(
@@ -78,168 +127,78 @@ def generate_random_pipeline(
     """
     rng = np.random.RandomState(random_state)
     
-    # Random column sampling (DIVERSITY BOOST: reduced from 50-95% to 30-70%)
-    col_sample_pct = rng.uniform(0.30, 0.70)
+    # Get sampling configuration from config
+    row_sample_pct = rng.uniform(
+        ensemble_config.SAMPLING_CONFIG['row_sample_pct']['min'],
+        ensemble_config.SAMPLING_CONFIG['row_sample_pct']['max']
+    )
+    col_sample_pct = rng.uniform(
+        ensemble_config.SAMPLING_CONFIG['col_sample_pct']['min'],
+        ensemble_config.SAMPLING_CONFIG['col_sample_pct']['max']
+    )
     
-    # DIVERSITY BOOST: 30% chance to skip ALL feature engineering (use raw features only)
-    skip_feature_engineering = rng.random() < 0.30
+    # Feature engineering configuration from config
+    skip_feature_engineering = rng.random() < ensemble_config.FEATURE_ENGINEERING_CONFIG['skip_probability']
+    n_transformers = 0 if skip_feature_engineering else rng.randint(
+        ensemble_config.FEATURE_ENGINEERING_CONFIG['n_transformers']['min'],
+        ensemble_config.FEATURE_ENGINEERING_CONFIG['n_transformers']['max'] + 1
+    )
     
-    # Select 0-3 feature engineering transformers (0 if skipping)
-    n_transformers = 0 if skip_feature_engineering else rng.randint(1, 4)
+    # Transformer class mapping
+    transformer_class_map = {
+        'ratio': RatioTransformer,
+        'product': ProductTransformer,
+        'difference': DifferenceTransformer,
+        'sum': SumTransformer,
+        'reciprocal': ReciprocalTransformer,
+        'square': SquareTransformer,
+        'sqrt': SquareRootTransformer,
+        'log': LogTransformer,
+        'binning': BinningTransformer,
+        'iqr_clipper': IQRClipper,
+        'kde': KDESmoothingTransformer,
+        'kmeans': KMeansClusterTransformer,
+        'nystroem': Nystroem,
+        'rbf_sampler': RBFSampler,
+        'power_transform': PowerTransformer,
+        'quantile_transform': QuantileTransformer,
+        'noise_injector': NoiseInjector
+    }
     
-    # Available feature engineering transformers (excluding dimensionality reduction)
-    transformer_options = [
-        ('ratio', RatioTransformer),
-        ('product', ProductTransformer),
-        ('difference', DifferenceTransformer),
-        ('sum', SumTransformer),
-        ('reciprocal', ReciprocalTransformer),
-        ('square', SquareTransformer),
-        ('sqrt', SquareRootTransformer),
-        ('log', LogTransformer),
-        ('binning', BinningTransformer),
-        ('kde', KDESmoothingTransformer),
-        ('kmeans', KMeansClusterTransformer),
-        ('nystroem', Nystroem),
-        ('rbf_sampler', RBFSampler),
-        # Note: SkewedChi2Sampler removed - requires X > -skewedness which conflicts with StandardScaler
-        ('power_transform', PowerTransformer),
-        ('quantile_transform', QuantileTransformer),
-        ('standard_scaler', StandardScaler),
-        ('noise_injector', NoiseInjector)  # DIVERSITY BOOST: deliberate noise injection
-    ]
+    # Dimensionality reduction class mapping
+    dim_reduction_class_map = {
+        'pca': PCA,
+        'truncated_svd': TruncatedSVD,
+        'fast_ica': FastICA,
+        'factor_analysis': FactorAnalysis
+    }
     
-    # Dimensionality reduction options (will select one or none)
-    dim_reduction_options = [
-        ('pca', PCA),
-        ('truncated_svd', TruncatedSVD),
-        ('fast_ica', FastICA),
-        ('factor_analysis', FactorAnalysis)
-    ]
-    
-    # Randomly select transformers (only if not skipping)
+    # Randomly select transformers from config
+    available_transformers = ensemble_config.FEATURE_ENGINEERING_CONFIG['available_transformers']
     if n_transformers > 0:
-        selected_transformer_indices = rng.choice(
-            len(transformer_options),
-            size=n_transformers,
+        selected_transformer_names = rng.choice(
+            available_transformers,
+            size=min(n_transformers, len(available_transformers)),
             replace=False
         )
-        selected_transformers = [transformer_options[i] for i in selected_transformer_indices]
     else:
-        selected_transformers = []
+        selected_transformer_names = []
     
     # Build feature engineering pipeline steps
     feature_steps = []
-    transformer_names = []
+    transformer_names = list(selected_transformer_names)
     
-    for name, TransformerClass in selected_transformers:
-        transformer_names.append(name)
+    for name in selected_transformer_names:
+        TransformerClass = transformer_class_map[name]
+        hyperparam_config = ensemble_config.TRANSFORMER_HYPERPARAMS.get(name, {})
+        hyperparams = _generate_hyperparameters(rng, hyperparam_config)
         
-        # Configure transformer with random parameters
-        if name in ['ratio', 'product', 'difference', 'sum']:
-            # Pairwise transformers: random number of features
-            n_features = rng.randint(5, 31)
-            transformer = TransformerClass(
-                n_features=n_features,
-                random_state=None  # No random state for diversity
-            )
-        elif name == 'binning':
-            n_bins = rng.randint(3, 8)  # Reduced max bins from 10 to 7 to avoid small bin warnings
-            strategy = rng.choice(['quantile', 'uniform'])
-            transformer = TransformerClass(
-                n_bins=n_bins,
-                strategy=strategy,
-                encode='ordinal'
-                # No random_state parameter for KBinsDiscretizer
-            )
-        elif name == 'kde':
-            bandwidth = rng.choice(['scott', 'silverman'])
-            transformer = TransformerClass(
-                bandwidth=bandwidth,
-                random_state=None  # No random state for diversity
-            )
-        elif name == 'kmeans':
-            # K-Means clustering features (cluster label + distances)
-            n_clusters = rng.randint(3, 11)  # 3 to 10 clusters
-            add_distances = rng.choice([True, False])  # Randomly add distances or not
-            transformer = TransformerClass(
-                n_clusters=n_clusters,
-                add_distances=add_distances,
-                random_state=None  # No random state for diversity
-            )
-        elif name == 'nystroem':
-            # Approximate kernel feature map using subset of training data
-            kernel = rng.choice(['rbf', 'poly', 'sigmoid', 'cosine'])
-            n_components = int(10 ** rng.uniform(1.5, 2.5))  # 30 to 300 components
-            gamma = 10 ** rng.uniform(-3, 0) if kernel in ['rbf', 'poly', 'sigmoid'] else None
-            degree = rng.randint(2, 5) if kernel == 'poly' else 3
-            transformer = TransformerClass(
-                kernel=kernel,
-                n_components=n_components,
-                gamma=gamma,
-                degree=degree,
-                random_state=None  # No random state for diversity
-            )
-        elif name == 'rbf_sampler':
-            # Approximates RBF kernel feature map using random Fourier features
-            n_components = int(10 ** rng.uniform(1.5, 2.5))  # 30 to 300 components
-            gamma = 10 ** rng.uniform(-3, 0)  # 0.001 to 1.0
-            transformer = TransformerClass(
-                n_components=n_components,
-                gamma=gamma,
-                random_state=None  # No random state for diversity
-            )
-        elif name == 'power_transform':
-            # Transforms data to be more Gaussian-like
-            # Only use yeo-johnson as it handles negative values (box-cox requires strictly positive data)
-            standardize = rng.choice([True, False])
-            transformer = TransformerClass(
-                method='yeo-johnson',
-                standardize=standardize
-                # No random_state parameter
-            )
-        elif name == 'quantile_transform':
-            # Transform features to follow a uniform or normal distribution
-            n_quantiles = rng.choice([100, 500, 1000])
-            output_distribution = rng.choice(['uniform', 'normal'])
-            transformer = TransformerClass(
-                n_quantiles=n_quantiles,
-                output_distribution=output_distribution,
-                random_state=None  # No random state for diversity
-            )
-        elif name == 'standard_scaler':
-            # Standardize features by removing mean and scaling to unit variance
-            with_mean = rng.choice([True, False])
-            with_std = rng.choice([True, False])
-            # Ensure at least one is True
-            if not with_mean and not with_std:
-                with_std = True
-            transformer = TransformerClass(
-                with_mean=with_mean,
-                with_std=with_std
-            )
-        elif name == 'noise_injector':
-            # DIVERSITY BOOST: Add deliberate noise to features
-            # Randomly select fraction of features to add noise to (0-100%)
-            feature_fraction = rng.uniform(0.0, 1.0)
-            # Randomly select noise scale range (fraction of feature std)
-            noise_scale_min = rng.uniform(0.001, 0.05)  # Min: 0.1% to 5%
-            noise_scale_max = rng.uniform(0.05, 0.3)    # Max: 5% to 30%
-            noise_scale_range = (noise_scale_min, noise_scale_max)
-            transformer = TransformerClass(
-                feature_fraction=feature_fraction,
-                noise_scale_range=noise_scale_range,
-                random_state=None  # No random state - different noise each time
-            )
-        else:
-            # Simple transformers
-            transformer = TransformerClass()
-        
+        # Create transformer with generated hyperparameters
+        transformer = TransformerClass(**hyperparams)
         feature_steps.append((name, transformer))
     
-    # Add initial scaling BEFORE feature engineering to prevent overflow
-    # This is inserted at position 0, so it runs first after column selection
-    scaler_choice = rng.choice(['standard', 'minmax', 'robust'])
+    # Add initial scaling BEFORE feature engineering
+    scaler_choice = rng.choice(ensemble_config.INITIAL_SCALER_OPTIONS)
     if scaler_choice == 'standard':
         initial_scaler = StandardScaler()
     elif scaler_choice == 'minmax':
@@ -270,388 +229,47 @@ def generate_random_pipeline(
     # Initialize flag for non-negative feature requirement
     needs_nonnegative = False
     
-    # Optionally add dimensionality reduction (50% chance)
-    use_dim_reduction = rng.random() < 0.5
+    # Optionally add dimensionality reduction from config
+    use_dim_reduction = rng.random() < ensemble_config.DIM_REDUCTION_CONFIG['use_probability']
     dim_reduction_name = None
     if use_dim_reduction:
-        # Randomly select one dimensionality reduction technique
-        idx = rng.randint(0, len(dim_reduction_options))
-        dim_reduction_name, DimReductionClass = dim_reduction_options[idx]
+        # Randomly select one dimensionality reduction technique from config
+        available_methods = ensemble_config.DIM_REDUCTION_CONFIG['available_methods']
+        dim_reduction_name = rng.choice(available_methods)
+        DimReductionClass = dim_reduction_class_map[dim_reduction_name]
         
-        # Configure based on technique
-        if dim_reduction_name == 'pca':
-            # Use variance-based selection to avoid dimensionality issues
-            pca_options = [0.90, 0.95, 0.99, 'mle']
-            n_components = rng.choice(pca_options)
-            # Convert numpy scalar to Python type if needed
-            if n_components != 'mle':
-                n_components = float(n_components)
-            dim_reducer = DimReductionClass(
-                n_components=n_components,
-                svd_solver='full',  # More robust to edge cases (constant features, low variance)
-                random_state=None  # No random state for diversity
-            )
-        elif dim_reduction_name == 'truncated_svd':
-            # Truncated SVD (works with sparse matrices, no centering)
-            n_components = int(10 ** rng.uniform(0.7, 1.7))  # 5 to 50 components
-            n_iter = rng.randint(5, 21)  # 5 to 20 iterations
-            dim_reducer = DimReductionClass(
-                n_components=n_components,
-                n_iter=n_iter,
-                random_state=None  # No random state for diversity
-            )
-        elif dim_reduction_name == 'fast_ica':
-            # Independent Component Analysis (finds independent sources)
-            algorithm = rng.choice(['parallel', 'deflation'])
-            fun = rng.choice(['logcosh', 'exp', 'cube'])
-            max_iter = rng.randint(200, 1001)  # 200 to 1000 iterations
-            # Explicit whiten setting: randomly choose from valid options
-            # Valid values: 'unit-variance', 'arbitrary-variance', or False
-            whiten_choice = rng.randint(0, 3)
-            if whiten_choice == 0:
-                whiten = 'unit-variance'
-            elif whiten_choice == 1:
-                whiten = 'arbitrary-variance'
-            else:
-                whiten = False
-            
-            # Only set n_components when whiten is enabled (sklearn requirement)
-            if whiten is False:
-                dim_reducer = DimReductionClass(
-                    algorithm=algorithm,
-                    fun=fun,
-                    max_iter=max_iter,
-                    whiten=whiten,
-                    random_state=None  # No random state for diversity
-                )
-            else:
-                n_components = int(10 ** rng.uniform(0.7, 1.7))  # 5 to 50 components
-                dim_reducer = DimReductionClass(
-                    n_components=n_components,
-                    algorithm=algorithm,
-                    fun=fun,
-                    max_iter=max_iter,
-                    whiten=whiten,
-                    random_state=None  # No random state for diversity
-                )
-        elif dim_reduction_name == 'factor_analysis':
-            # Factor Analysis (similar to PCA but with noise modeling)
-            n_components = int(10 ** rng.uniform(0.7, 1.7))  # 5 to 50 components
-            max_iter = rng.randint(100, 501)  # 100 to 500 iterations
-            dim_reducer = DimReductionClass(
-                n_components=n_components,
-                max_iter=max_iter,
-                random_state=None  # No random state for diversity
-            )
+        # Get hyperparameters from config
+        hyperparam_config = ensemble_config.DIM_REDUCTION_HYPERPARAMS[dim_reduction_name]
+        hyperparams = _generate_hyperparameters(rng, hyperparam_config)
         
+        # Create dimensionality reduction transformer
+        dim_reducer = DimReductionClass(**hyperparams)
         feature_steps.append((dim_reduction_name, dim_reducer))
     
-    # Select classifier first to determine scaling strategy
-    classifier_options = [
-        'logistic',
-        'random_forest',
-        'linear_svc',
-        'sgd_classifier',
-        'extra_trees',
-        'adaboost',
-        'naive_bayes',
-        'lda',
-        'qda',
-        'ridge'
-        # TEMPORARILY DISABLED (too slow - hold up entire batch):
-        # 'gradient_boosting',  # Sequential tree building is very slow
-        # 'mlp',                # Neural network with multiple layers is very slow
-        # 'knn'                 # Distance calculations on large datasets are slow
-    ]
+    # Select classifier from config
+    classifier_type = rng.choice(ensemble_config.ACTIVE_CLASSIFIERS)
     
-    classifier_type = rng.choice(classifier_options)
+    # Add final scaler before classifier
+    feature_steps.append(('scaler', StandardScaler()))
     
-    # For Naive Bayes, we need to check which variant will be used
-    # MultinomialNB requires non-negative features
-    if classifier_type == 'naive_bayes':
-        nb_type = rng.choice(['gaussian', 'multinomial', 'bernoulli'])
-        if nb_type == 'multinomial':
-            needs_nonnegative = True
+    # Get classifier class and hyperparameters from config
+    classifier_config = ensemble_config.CLASSIFIER_CONFIGS[classifier_type]
+    ClassifierClass = classifier_config['class']
+    hyperparam_config = classifier_config['hyperparameters']
     
-    # Add appropriate scaler before classifier
-    if needs_nonnegative:
-        # MinMaxScaler ensures non-negative features for MultinomialNB
-        feature_steps.append(('scaler', MinMaxScaler()))
-    else:
-        # StandardScaler for all other classifiers
-        feature_steps.append(('scaler', StandardScaler()))
+    # Generate hyperparameters with n_jobs context for parallel classifiers
+    hyperparams = _generate_hyperparameters(rng, hyperparam_config, n_jobs=n_jobs)
     
-    # Row sampling for training: balanced between model quality and diversity
-    # Higher sampling = stronger individual models, lower sampling = more diversity
-    # This gives sample sizes of ~2,400 to 9,600 rows (from ~24,000 pool)
-    # Provides good balance: models learn enough to be useful while maintaining diversity
-    row_sample_pct = rng.uniform(0.10, 0.40)
+    # Handle special MLP case where layer_sizes needs to be derived from n_layers
+    if classifier_type == 'mlp' and 'hidden_layer_sizes' not in hyperparams:
+        # If config uses n_layers pattern, construct hidden_layer_sizes
+        if 'layer_sizes' in hyperparams:
+            hyperparams['hidden_layer_sizes'] = hyperparams.pop('layer_sizes')
+        # Remove n_layers as it's not an MLP parameter
+        hyperparams.pop('n_layers', None)
     
-    # Create classifier with random hyperparameters (wide distributions for diversity)
-    if classifier_type == 'logistic':
-        # SPEED FIX: Reduced max_iter and narrowed C range to prevent timeouts
-        penalty = rng.choice(['l2', None])  # Removed l1 (slower with liblinear)
-        
-        # Fast solvers only - no saga, sag, or liblinear
-        if penalty == 'l2':
-            solver = rng.choice(['lbfgs', 'newton-cg'])  # Fastest solvers for l2
-            C = 10 ** rng.uniform(-1, 1)  # 0.1 to 10 (narrower range for speed)
-        else:  # penalty is None
-            solver = rng.choice(['lbfgs', 'newton-cg'])  # Fast solvers for no penalty
-            C = 1.0  # C is ignored when penalty=None, set to default to avoid warning
-        
-        classifier = LogisticRegression(
-            C=C,
-            penalty=penalty,
-            solver=solver,
-            max_iter=rng.choice([100, 200, 300]),  # Reduced from 500-1000 for speed
-            class_weight='balanced',
-            tol=1e-3  # Relaxed tolerance for faster convergence
-            # No random_state for diversity
-        )
-    
-    elif classifier_type == 'random_forest':
-        n_estimators = int(10 ** rng.uniform(1.0, 2.0))  # ~10 to 100
-        max_depth = rng.choice([3, 5, 7, 10, 15, 20, None])  # Reduced deep trees for speed
-        min_samples_split = int(10 ** rng.uniform(0.3, 1.3))  # 2 to 20
-        min_samples_leaf = int(10 ** rng.uniform(0, 1))  # 1 to 10
-        max_features = rng.choice(['sqrt', 'log2', None])
-        # Use allocated cores for parallel tree building
-        classifier = RandomForestClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            min_samples_split=min_samples_split,
-            min_samples_leaf=min_samples_leaf,
-            max_features=max_features,
-            class_weight='balanced',
-            n_jobs=n_jobs if n_jobs > 1 else 1
-            # No random_state for diversity
-        )
-    
-    elif classifier_type == 'gradient_boosting':
-        # SPEED FIX: Reduced max_iter, max_depth, and min learning_rate to prevent 30min+ timeouts
-        max_iter = int(10 ** rng.uniform(1.0, 1.7))  # ~10 to 50 (was 10-100)
-        learning_rate = 10 ** rng.uniform(-2.0, 0)  # 0.01 to 1.0 (was 0.003-1.0)
-        max_depth = rng.choice([None, 3, 5, 7, 10])  # Max 10 (was up to 20)
-        l2_regularization = 10 ** rng.uniform(-4, 1)  # 0.0001 to 10
-        min_samples_leaf = int(10 ** rng.uniform(1, 2))  # 10 to 100
-        max_bins = rng.choice([32, 64, 128, 255])  # Keep full range
-        classifier = HistGradientBoostingClassifier(
-            max_iter=max_iter,
-            learning_rate=learning_rate,
-            max_depth=max_depth,
-            l2_regularization=l2_regularization,
-            min_samples_leaf=min_samples_leaf,
-            max_bins=max_bins
-            # No random_state for diversity
-        )
-    
-    elif classifier_type == 'linear_svc':
-        # SPEED FIX: Reduced C range, max_iter, and use dual=False for speed
-        C = 10 ** rng.uniform(-1, 1)  # 0.1 to 10 (narrower range)
-        loss = 'squared_hinge'  # Only squared_hinge (faster, works with dual=False)
-        # dual=False is much faster when n_features >> n_samples (after transformations)
-        # Also relaxed tolerance for faster convergence
-        classifier = LinearSVC(
-            C=C,
-            loss=loss,
-            max_iter=rng.choice([200, 300]),  # Further reduced
-            class_weight='balanced',
-            dual=False,  # Much faster with many features
-            tol=1e-3  # Relaxed from default 1e-4 for faster convergence
-            # No random_state for diversity
-        )
-    
-    elif classifier_type == 'sgd_classifier':
-        loss = rng.choice(['hinge', 'log_loss', 'modified_huber', 'perceptron'])
-        penalty = rng.choice(['l2', 'l1', 'elasticnet'])
-        alpha = 10 ** rng.uniform(-5, -1)  # 0.00001 to 0.1
-        learning_rate = rng.choice(['optimal', 'adaptive', 'constant'])
-        eta0 = 10 ** rng.uniform(-4, -1)  # 0.0001 to 0.1 (required for adaptive/constant)
-        classifier = SGDClassifier(
-            loss=loss,
-            penalty=penalty,
-            alpha=alpha,
-            learning_rate=learning_rate,
-            eta0=eta0,
-            max_iter=rng.choice([300, 500, 800]),  # Varied iterations for diversity
-            early_stopping=True,
-            class_weight='balanced'
-            # No random_state for diversity
-        )
-    
-    elif classifier_type == 'mlp':
-        n_layers = rng.randint(1, 4)  # 1 to 3 hidden layers
-        layer_sizes = [int(10 ** rng.uniform(1.3, 2.3)) for _ in range(n_layers)]  # ~20 to 200 neurons (reduced)
-        hidden_layer_sizes = tuple(layer_sizes)
-        alpha = 10 ** rng.uniform(-5, -1)  # 0.00001 to 0.1
-        learning_rate_init = 10 ** rng.uniform(-4, -2)  # 0.0001 to 0.01
-        activation = rng.choice(['relu', 'tanh', 'logistic'])
-        classifier = MLPClassifier(
-            hidden_layer_sizes=hidden_layer_sizes,
-            alpha=alpha,
-            learning_rate_init=learning_rate_init,
-            activation=activation,
-            max_iter=rng.choice([100, 150, 200]),  # Reduced from 200-300 for speed
-            early_stopping=True
-            # No random_state for diversity
-        )
-    
-    elif classifier_type == 'knn':
-        n_neighbors = int(10 ** rng.uniform(0.5, 1.5))  # 3 to 30
-        weights = rng.choice(['uniform', 'distance'])
-        p = rng.choice([1, 2])  # Manhattan or Euclidean
-        leaf_size = int(10 ** rng.uniform(1, 2))  # 10 to 100
-        # Use allocated cores for distance calculations
-        classifier = KNeighborsClassifier(
-            n_neighbors=n_neighbors,
-            weights=weights,
-            p=p,
-            leaf_size=leaf_size,
-            n_jobs=n_jobs if n_jobs > 1 else 1
-        )
-    
-    elif classifier_type == 'extra_trees':
-        # SPEED FIX: Reduced n_estimators and max_depth to prevent timeouts
-        n_estimators = int(10 ** rng.uniform(0.7, 1.5))  # ~5 to 30 (was 10-100)
-        max_depth = rng.choice([3, 5, 7, 10])  # Max 10, removed None and deep trees (was up to 20/None)
-        min_samples_split = int(10 ** rng.uniform(0.7, 1.5))  # 5 to 30 (increased for speed)
-        min_samples_leaf = int(10 ** rng.uniform(0.5, 1.3))  # 3 to 20 (increased for speed)
-        max_features = rng.choice(['sqrt', 'log2'])  # Removed None (faster with feature subsampling)
-        # Use allocated cores for parallel tree building
-        classifier = ExtraTreesClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            min_samples_split=min_samples_split,
-            min_samples_leaf=min_samples_leaf,
-            max_features=max_features,
-            class_weight='balanced',
-            n_jobs=n_jobs if n_jobs > 1 else 1,
-            min_impurity_decrease=1e-7  # Early stopping for faster training
-            # No random_state for diversity
-        )
-    
-    elif classifier_type == 'adaboost':
-        n_estimators = int(10 ** rng.uniform(1.0, 2.0))  # ~10 to 100
-        learning_rate = 10 ** rng.uniform(-1.0, 0.5)  # 0.1 to 3.0 (wider, faster convergence)
-        classifier = AdaBoostClassifier(
-            n_estimators=n_estimators,
-            learning_rate=learning_rate,
-            algorithm='SAMME'  # Use SAMME to avoid deprecated SAMME.R
-            # No random_state for diversity
-        )
-    
-    elif classifier_type == 'naive_bayes':
-        # Use the pre-selected nb_type from above
-        if nb_type == 'gaussian':
-            # Gaussian Naive Bayes (works well with continuous features)
-            var_smoothing = 10 ** rng.uniform(-12, -6)  # 1e-12 to 1e-6
-            classifier = GaussianNB(
-                var_smoothing=var_smoothing
-            )
-        elif nb_type == 'multinomial':
-            # Multinomial Naive Bayes (good for count/frequency features)
-            # Requires non-negative features (handled by MinMaxScaler above)
-            alpha = 10 ** rng.uniform(-2, 1)  # 0.01 to 10
-            fit_prior = rng.choice([True, False])
-            classifier = MultinomialNB(
-                alpha=alpha,
-                fit_prior=fit_prior
-            )
-        else:  # bernoulli
-            # Bernoulli Naive Bayes (good for binary/boolean features)
-            alpha = 10 ** rng.uniform(-2, 1)  # 0.01 to 10
-            binarize = rng.choice([None, 0.0, rng.uniform(0.3, 0.7)])
-            fit_prior = rng.choice([True, False])
-            classifier = BernoulliNB(
-                alpha=alpha,
-                binarize=binarize,
-                fit_prior=fit_prior
-            )
-    
-    elif classifier_type == 'gaussian_process':
-        # Gaussian Process Classifier (probabilistic, kernel-based)
-        # Very slow O(n³) - use small row samples and simpler kernels
-        # Randomly select kernel type
-        kernel_type = rng.choice(['rbf', 'matern', 'rational_quadratic', 'dot_product'])
-        
-        if kernel_type == 'rbf':
-            # RBF (Radial Basis Function) kernel - smooth, infinite differentiable
-            length_scale = 10 ** rng.uniform(-1, 1)  # 0.1 to 10
-            kernel = RBF(length_scale=length_scale)
-        elif kernel_type == 'matern':
-            # Matern kernel - generalizes RBF, less smooth
-            length_scale = 10 ** rng.uniform(-1, 1)  # 0.1 to 10
-            nu = rng.choice([0.5, 1.5, 2.5])  # Controls smoothness
-            kernel = Matern(length_scale=length_scale, nu=nu)
-        elif kernel_type == 'rational_quadratic':
-            # Rational Quadratic - mixture of RBF kernels with different length scales
-            length_scale = 10 ** rng.uniform(-1, 1)  # 0.1 to 10
-            alpha = 10 ** rng.uniform(-1, 1)  # 0.1 to 10
-            kernel = RationalQuadratic(length_scale=length_scale, alpha=alpha)
-        else:  # dot_product
-            # Dot Product kernel - equivalent to linear model in feature space
-            sigma_0 = 10 ** rng.uniform(-1, 1)  # 0.1 to 10
-            kernel = DotProduct(sigma_0=sigma_0)
-        
-        # Add white noise kernel for numerical stability
-        noise_level = 10 ** rng.uniform(-5, -2)  # 1e-5 to 0.01
-        kernel = kernel + WhiteKernel(noise_level=noise_level)
-        
-        # Limit max iterations and use warm start for faster convergence
-        max_iter = rng.randint(15, 30)  # Very low due to O(n³) complexity, focus on speed
-        
-        # Adaptive n_jobs: GP is very slow O(n³), give it 3-5 cores if possible
-        n_jobs = rng.choice([3, 4, 5])
-        classifier = GaussianProcessClassifier(
-            kernel=kernel,
-            max_iter_predict=max_iter,
-            warm_start=True,
-            n_jobs=n_jobs,
-            random_state=None  # No random state for diversity
-        )
-    
-    elif classifier_type == 'lda':
-        # Linear Discriminant Analysis - assumes Gaussian distributions with shared covariance
-        # Fast O(n) and provides dimensionality reduction as side effect
-        solver = rng.choice(['svd', 'lsqr', 'eigen'])
-        shrinkage = None
-        
-        if solver == 'lsqr':
-            # lsqr and eigen support shrinkage for regularization
-            shrinkage = rng.choice([None, 'auto', rng.uniform(0.0, 1.0)])
-        elif solver == 'eigen':
-            shrinkage = rng.choice([None, 'auto', rng.uniform(0.0, 1.0)])
-        
-        classifier = LinearDiscriminantAnalysis(
-            solver=solver,
-            shrinkage=shrinkage
-            # No random_state parameter
-        )
-    
-    elif classifier_type == 'qda':
-        # Quadratic Discriminant Analysis - assumes Gaussian with separate covariances
-        # More flexible than LDA but needs more data, can model non-linear boundaries
-        reg_param = 10 ** rng.uniform(-4, 0)  # 0.0001 to 1.0 regularization
-        
-        classifier = QuadraticDiscriminantAnalysis(
-            reg_param=reg_param
-            # No random_state parameter
-        )
-    
-    elif classifier_type == 'ridge':
-        # Ridge Classifier - fast L2-regularized linear model
-        # Very fast training, good baseline performance
-        alpha = 10 ** rng.uniform(-2, 2)  # 0.01 to 100
-        solver = rng.choice(['auto', 'cholesky', 'lsqr'])  # Fast solvers
-        
-        classifier = RidgeClassifier(
-            alpha=alpha,
-            solver=solver,
-            class_weight='balanced',
-            tol=1e-3  # Relaxed tolerance for faster convergence
-            # No random_state parameter
-        )
+    # Create classifier instance
+    classifier = ClassifierClass(**hyperparams)
     
     # Build complete pipeline
     pipeline = Pipeline([
@@ -705,11 +323,7 @@ def calculate_ensemble_diversity(predictions: np.ndarray) -> float:
 def quick_optimize_pipeline(
     pipeline: Pipeline,
     X: pd.DataFrame,
-    y: pd.Series,
-    n_iter: int = 10,
-    cv: int = 3,
-    n_jobs: int = 8,
-    random_state: int = 42
+    y: pd.Series
 ) -> Tuple[Pipeline, float]:
     """Fit pipeline with pre-configured hyperparameters (no optimization, no CV).
     
@@ -725,14 +339,6 @@ def quick_optimize_pipeline(
         Training features.
     y : pd.Series
         Training labels.
-    n_iter : int, default=10
-        DEPRECATED - Not used. Kept for backwards compatibility.
-    cv : int, default=3
-        DEPRECATED - Not used. Kept for backwards compatibility.
-    n_jobs : int, default=8
-        DEPRECATED - Not used. Kept for backwards compatibility.
-    random_state : int, default=42
-        DEPRECATED - Not used. Kept for backwards compatibility.
     
     Returns
     -------

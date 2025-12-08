@@ -115,8 +115,7 @@ def _train_worker(args, result_queue):
         classifier_type = metadata['classifier_type']
         sample_size = len(X_train_sample)
         
-        print(f"\n[Iteration {iteration}] Training {classifier_type} + {', '.join(metadata['transformers_used']) if metadata['transformers_used'] else 'None'}, Sample size: {sample_size} rows ({metadata['row_sample_pct']*100:.1f}%)")
-        print(f"  Feature sampling: {metadata['col_sample_pct']*100:.1f}%")
+        print(f"[Iteration {iteration}] Training {classifier_type} + {', '.join(metadata['transformers_used']) if metadata['transformers_used'] else 'None'}, Sample size: {sample_size} rows ({metadata['row_sample_pct']*100:.1f}%)")
      
         # Train pipeline on pre-sampled data
         fitted_pipeline = pipeline.fit(X_train_sample, y_train_sample)
