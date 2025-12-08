@@ -2,6 +2,7 @@
 # Ensemble hill climbing requirements ########################
 ##############################################################
 ipykernel
+keras-tuner  # For Stage 2 DNN hyperparameter optimization
 matplotlib
 numpy==1.26.4
 pandas==2.2.3

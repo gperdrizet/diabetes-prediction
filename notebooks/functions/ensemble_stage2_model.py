@@ -25,6 +25,7 @@ from . import ensemble_database
 
 def build_stage2_dnn(
     n_models: int,
+    config: dict = None,
     n_layers: int = 2,
     units_per_layer: int = 128,
     dropout: float = 0.3,
@@ -38,18 +39,21 @@ def build_stage2_dnn(
     ----------
     n_models : int
         Number of stage 1 models (input dimension).
+    config : dict, optional
+        Config dict with architecture and training specs.
+        If provided, overrides other parameters.
     n_layers : int, default=2
-        Number of hidden layers.
+        Number of hidden layers (ignored if config provided).
     units_per_layer : int, default=128
-        Units per hidden layer.
+        Units per hidden layer (ignored if config provided).
     dropout : float, default=0.3
-        Dropout rate.
+        Dropout rate (ignored if config provided).
     batch_norm : bool, default=True
-        Whether to use batch normalization.
+        Whether to use batch normalization (ignored if config provided).
     activation : str, default='relu'
-        Activation function ('relu', 'elu', 'selu').
+        Activation function (ignored if config provided).
     learning_rate : float, default=0.001
-        Learning rate for Adam optimizer.
+        Learning rate for Adam optimizer (ignored if config provided).
     
     Returns
     -------
@@ -61,26 +65,96 @@ def build_stage2_dnn(
     # Input layer
     model.add(layers.Input(shape=(n_models,)))
     
-    # Hidden layers
-    for i in range(n_layers):
-        model.add(layers.Dense(units_per_layer, activation=activation))
+    if config is not None:
+        # Build from config
+        arch = config['architecture']
+        train_cfg = config['training']
         
-        if batch_norm:
-            model.add(layers.BatchNormalization())
+        # Hidden layers from config
+        for layer_cfg in arch['hidden_layers']:
+            model.add(layers.Dense(
+                layer_cfg['units'],
+                activation=layer_cfg['activation']
+            ))
+            model.add(layers.Dropout(layer_cfg['dropout']))
         
-        model.add(layers.Dropout(dropout))
-    
-    # Output layer
-    model.add(layers.Dense(1, activation='sigmoid'))
-    
-    # Compile
-    model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
-        loss='binary_crossentropy',
-        metrics=[keras.metrics.AUC(name='auc')]
-    )
+        # Output layer
+        output_cfg = arch['output']
+        model.add(layers.Dense(
+            output_cfg['units'],
+            activation=output_cfg['activation']
+        ))
+        
+        # Compile with config settings
+        model.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=train_cfg['learning_rate']),
+            loss=train_cfg['loss'],
+            metrics=[keras.metrics.AUC(name='auc')]
+        )
+    else:
+        # Build from legacy parameters
+        for i in range(n_layers):
+            model.add(layers.Dense(units_per_layer, activation=activation))
+            
+            if batch_norm:
+                model.add(layers.BatchNormalization())
+            
+            model.add(layers.Dropout(dropout))
+        
+        # Output layer
+        model.add(layers.Dense(1, activation='sigmoid'))
+        
+        # Compile
+        model.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+            loss='binary_crossentropy',
+            metrics=[keras.metrics.AUC(name='auc')]
+        )
     
     return model
+
+
+def build_architecture_units(n_models: int, arch_type: str, base_units: int, n_layers: int) -> List[int]:
+    """Generate layer unit configuration based on architecture type.
+    
+    Parameters
+    ----------
+    n_models : int
+        Number of input models (input dimension).
+    arch_type : str
+        Architecture type: 'uniform', 'pyramid', or 'funnel'.
+    base_units : int
+        Base number of units for scaling.
+    n_layers : int
+        Number of hidden layers.
+    
+    Returns
+    -------
+    units_per_layer : list of int
+        Units for each layer.
+    """
+    if arch_type == 'uniform':
+        # All layers same size
+        return [base_units] * n_layers
+    
+    elif arch_type == 'pyramid':
+        # Decreasing by half each layer
+        units = []
+        current = base_units
+        for _ in range(n_layers):
+            units.append(max(8, current))  # Minimum 8 units
+            current = current // 2
+        return units
+    
+    elif arch_type == 'funnel':
+        # Start at input size, decrease to base_units
+        if n_layers == 1:
+            return [base_units]
+        units = np.linspace(n_models, base_units, n_layers, dtype=int)
+        return [max(8, int(u)) for u in units]  # Minimum 8 units
+    
+    else:
+        raise ValueError(f"Unknown architecture type: {arch_type}")
 
 
 def optimize_stage2_hyperparameters(
@@ -88,12 +162,21 @@ def optimize_stage2_hyperparameters(
     y_train: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
-    max_trials: int = 20,
+    max_trials: int = 30,
     executions_per_trial: int = 3,
     project_name: str = 'stage2_tuning',
     directory: Path = None
 ) -> Tuple[models.Sequential, Dict[str, Any]]:
     """Optimize stage 2 DNN hyperparameters using Keras Tuner.
+    
+    Searches focused hyperparameter space:
+    - Architecture types: pyramid, funnel
+    - Layers: 2-3 hidden layers
+    - Base units: 64, 128, 256
+    - Dropout: continuous 0.2-0.5
+    - Learning rate: log continuous 1e-4 to 1e-3
+    - Activation: relu only (best for this task)
+    - Batch norm: disabled (adds complexity)
     
     NOTE: This function requires keras_tuner to be installed.
     Install with: pip install keras-tuner
@@ -108,10 +191,10 @@ def optimize_stage2_hyperparameters(
         Validation predictions from stage 1 models.
     y_val : np.ndarray
         Validation labels.
-    max_trials : int, default=20
-        Maximum number of trials.
+    max_trials : int, default=30
+        Maximum number of trials (GPU-optimized default).
     executions_per_trial : int, default=3
-        Number of executions per trial.
+        Number of executions per trial for statistical confidence.
     project_name : str, default='stage2_tuning'
         Name for tuning project.
     directory : Path or None, default=None
@@ -122,7 +205,7 @@ def optimize_stage2_hyperparameters(
     best_model : Sequential
         Best model from tuning.
     best_hyperparameters : dict
-        Best hyperparameters found.
+        Best hyperparameters found including architecture_type.
     """
     # Import keras_tuner only when this function is called
     try:
@@ -140,23 +223,36 @@ def optimize_stage2_hyperparameters(
     directory.mkdir(parents=True, exist_ok=True)
     
     def build_model(hp):
-        """Build model with hyperparameters."""
-        n_layers = hp.Int('n_layers', min_value=1, max_value=3, step=1)
-        units = hp.Int('units', min_value=32, max_value=256, step=32)
-        dropout = hp.Float('dropout', min_value=0.2, max_value=0.5, step=0.1)
-        batch_norm = hp.Boolean('batch_norm')
-        activation = hp.Choice('activation', values=['relu', 'elu', 'selu'])
-        learning_rate = hp.Float('learning_rate', min_value=1e-4, max_value=1e-2, sampling='log')
+        """Build model with focused hyperparameters."""
+        # Focused search space
+        arch_type = hp.Choice('architecture_type', values=['pyramid', 'funnel'])
+        n_layers = hp.Int('n_layers', min_value=2, max_value=3)  # Skip 1 (too simple)
+        base_units = hp.Choice('base_units', values=[64, 128, 256])
+        dropout = hp.Float('dropout', min_value=0.2, max_value=0.5)
+        learning_rate = hp.Float('learning_rate', min_value=1e-4, max_value=1e-3, sampling='log')
         
-        return build_stage2_dnn(
-            n_models=n_models,
-            n_layers=n_layers,
-            units_per_layer=units,
-            dropout=dropout,
-            batch_norm=batch_norm,
-            activation=activation,
-            learning_rate=learning_rate
+        # Generate layer units based on architecture type
+        units_per_layer = build_architecture_units(n_models, arch_type, base_units, n_layers)
+        
+        # Build model with custom architecture
+        model = models.Sequential()
+        model.add(layers.Input(shape=(n_models,)))
+        
+        for units in units_per_layer:
+            model.add(layers.Dense(units, activation='relu'))
+            model.add(layers.Dropout(dropout))
+        
+        # Output layer
+        model.add(layers.Dense(1, activation='sigmoid'))
+        
+        # Compile
+        model.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+            loss='binary_crossentropy',
+            metrics=[keras.metrics.AUC(name='auc')]
         )
+        
+        return model
     
     # Create tuner
     tuner = RandomSearch(
@@ -191,12 +287,19 @@ def optimize_stage2_hyperparameters(
     best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
     
     # Extract hyperparameters
+    arch_type = best_hps.get('architecture_type')
+    n_layers = best_hps.get('n_layers')
+    base_units = best_hps.get('base_units')
+    
+    # Regenerate layer configuration for documentation
+    units_per_layer = build_architecture_units(n_models, arch_type, base_units, n_layers)
+    
     best_hyperparameters = {
-        'n_layers': best_hps.get('n_layers'),
-        'units': best_hps.get('units'),
+        'architecture_type': arch_type,
+        'n_layers': n_layers,
+        'base_units': base_units,
+        'units_per_layer': units_per_layer,
         'dropout': best_hps.get('dropout'),
-        'batch_norm': best_hps.get('batch_norm'),
-        'activation': best_hps.get('activation'),
         'learning_rate': best_hps.get('learning_rate')
     }
     

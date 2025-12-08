@@ -188,10 +188,13 @@ def generate_random_pipeline(
     feature_steps = []
     transformer_names = list(selected_transformer_names)
     
+    # Calculate n_features after column sampling for transformers that need it
+    n_features_after_sampling = int(len(X_train.columns) * col_sample_pct)
+    
     for name in selected_transformer_names:
         TransformerClass = transformer_class_map[name]
         hyperparam_config = ensemble_config.TRANSFORMER_HYPERPARAMS.get(name, {})
-        hyperparams = _generate_hyperparameters(rng, hyperparam_config)
+        hyperparams = _generate_hyperparameters(rng, hyperparam_config, n_features=n_features_after_sampling)
         
         # Create transformer with generated hyperparameters
         transformer = TransformerClass(**hyperparams)
@@ -239,8 +242,10 @@ def generate_random_pipeline(
         DimReductionClass = dim_reduction_class_map[dim_reduction_name]
         
         # Get hyperparameters from config
+        # Calculate n_features after column sampling
+        n_features_after_sampling = int(len(X_train.columns) * col_sample_pct)
         hyperparam_config = ensemble_config.DIM_REDUCTION_HYPERPARAMS[dim_reduction_name]
-        hyperparams = _generate_hyperparameters(rng, hyperparam_config)
+        hyperparams = _generate_hyperparameters(rng, hyperparam_config, n_features=n_features_after_sampling)
         
         # Create dimensionality reduction transformer
         dim_reducer = DimReductionClass(**hyperparams)

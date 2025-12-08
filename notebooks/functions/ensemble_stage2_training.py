@@ -9,12 +9,159 @@ import psutil
 import os
 from datetime import datetime
 
-from .ensemble_stage2_model import build_stage2_dnn, train_stage2_dnn, evaluate_ensemble
+from .ensemble_stage2_model import (
+    build_stage2_dnn, train_stage2_dnn, evaluate_ensemble, optimize_stage2_hyperparameters
+)
 from . import ensemble_database
+from . import ensemble_config
+
+
+def optimize_and_update_config(ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_val_s2,
+                               max_trials=30, executions_per_trial=3):
+    """
+    Run hyperparameter optimization and update ensemble_config.STAGE2_DNN_CONFIG.
+    
+    This function:
+    1. Generates Stage 2 training data from current ensemble (conservative 95/5 split)
+    2. Runs Keras Tuner optimization with focused search space
+    3. Updates the global STAGE2_DNN_CONFIG dict in-memory
+    4. Returns the optimized config for logging
+    
+    Parameters
+    ----------
+    ensemble_models : list
+        Current ensemble models to use for generating training data
+    X_val_s1, y_val_s1 : arrays
+        Validation set 1 (will use all for training)
+    X_val_s2, y_val_s2 : arrays
+        Validation set 2 (will split 90/10 for train/val)
+    max_trials : int, default=30
+        Number of hyperparameter combinations to try
+    executions_per_trial : int, default=3
+        Number of training runs per combination
+    
+    Returns
+    -------
+    dict
+        Optimized configuration dictionary
+    """
+    print(f"\n{'=' * 80}")
+    print(f"RUNNING STAGE 2 DNN HYPERPARAMETER OPTIMIZATION")
+    print(f"Ensemble size: {len(ensemble_models)} models")
+    print(f"{'=' * 80}")
+    
+    # Generate Stage 1 predictions on both validation sets
+    print("\n  Generating Stage 1 predictions...")
+    all_stage1_preds_s1 = []
+    for model in ensemble_models:
+        if hasattr(model, 'predict_proba'):
+            pred = model.predict_proba(X_val_s1)[:, 1]
+        else:
+            pred = model.decision_function(X_val_s1)
+        all_stage1_preds_s1.append(pred)
+    
+    all_stage1_preds_s2 = []
+    for model in ensemble_models:
+        if hasattr(model, 'predict_proba'):
+            pred = model.predict_proba(X_val_s2)[:, 1]
+        else:
+            pred = model.decision_function(X_val_s2)
+        all_stage1_preds_s2.append(pred)
+    
+    # Stack predictions
+    X_stage2_s1 = np.column_stack(all_stage1_preds_s1)
+    X_stage2_s2 = np.column_stack(all_stage1_preds_s2)
+    y_stage2_s1 = y_val_s1.values
+    y_stage2_s2 = y_val_s2.values
+    
+    # Conservative 95/5 split: X_val_s1 + 90% X_val_s2 for train, 10% X_val_s2 for val
+    split_idx = int(len(X_stage2_s2) * 0.9)
+    X_stage2_s2_train = X_stage2_s2[:split_idx]
+    X_stage2_s2_val = X_stage2_s2[split_idx:]
+    y_stage2_s2_train = y_stage2_s2[:split_idx]
+    y_stage2_s2_val = y_stage2_s2[split_idx:]
+    
+    X_train = np.vstack([X_stage2_s1, X_stage2_s2_train])
+    y_train = np.concatenate([y_stage2_s1, y_stage2_s2_train])
+    X_val = X_stage2_s2_val
+    y_val = y_stage2_s2_val
+    
+    print(f"  Training samples: {len(X_train):,} (X_val_s1 + 90% X_val_s2)")
+    print(f"  Validation samples: {len(X_val):,} (10% X_val_s2)")
+    print(f"  Running {max_trials} trials with {executions_per_trial} executions each...")
+    
+    # Run optimization
+    from pathlib import Path
+    tuner_dir = Path('../models/keras_tuner')
+    
+    best_model, best_hps = optimize_stage2_hyperparameters(
+        X_train=X_train,
+        y_train=y_train,
+        X_val=X_val,
+        y_val=y_val,
+        max_trials=max_trials,
+        executions_per_trial=executions_per_trial,
+        project_name=f'stage2_online_tuning_{len(ensemble_models)}models',
+        directory=tuner_dir
+    )
+    
+    # Build optimized config dictionary
+    optimized_config = {
+        'architecture': {
+            'hidden_layers': [],
+            'output': {'units': 1, 'activation': 'sigmoid'}
+        },
+        'training': {
+            'optimizer': 'Adam',
+            'learning_rate': best_hps['learning_rate'],
+            'loss': 'binary_crossentropy',
+            'metrics': ['AUC', 'accuracy'],
+            'epochs': 100,
+            'batch_size': 128,
+            'early_stopping': {
+                'monitor': 'val_auc',
+                'patience': 10,
+                'mode': 'max',
+                'restore_best_weights': True
+            }
+        },
+        'retrain_frequency': 10
+    }
+    
+    # Add hidden layers from optimized architecture
+    for units in best_hps['units_per_layer']:
+        layer_config = {
+            'units': int(units),
+            'activation': 'relu',
+            'dropout': float(best_hps['dropout'])
+        }
+        optimized_config['architecture']['hidden_layers'].append(layer_config)
+    
+    # Update global config
+    ensemble_config.STAGE2_DNN_CONFIG = optimized_config
+    
+    # Evaluate best model
+    from sklearn.metrics import roc_auc_score
+    y_pred = best_model.predict(X_val, verbose=0).flatten()
+    val_auc = roc_auc_score(y_val, y_pred)
+    
+    print(f"\n  Optimization complete!")
+    print(f"  Best hyperparameters:")
+    print(f"    - Architecture: {best_hps['architecture_type']}")
+    print(f"    - Layers: {best_hps['n_layers']} ({best_hps['units_per_layer']})")
+    print(f"    - Dropout: {best_hps['dropout']:.3f}")
+    print(f"    - Learning rate: {best_hps['learning_rate']:.6f}")
+    print(f"  Validation AUC: {val_auc:.6f}")
+    print(f"  Config updated in-memory for subsequent training")
+    print(f"{'=' * 80}\n")
+    
+    return optimized_config
 
 
 def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_s1, X_val_s2, y_val_s2,
-                                 stage2_epochs, stage2_batch_size, stage2_patience, current_iter):
+                                 stage2_epochs, stage2_batch_size, stage2_patience, current_iter,
+                                 optimize_every_n_batches=None, run_optimization=True,
+                                 optimization_trials=None):
     """
     Train new or expand existing stage 2 DNN with transfer learning.
     
@@ -36,16 +183,62 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
         Early stopping patience
     current_iter : int
         Current iteration number
+    optimize_every_n_batches : int or None, default=None
+        Run hyperparameter optimization every N batches (10, 20, 30, etc.)
+        If None, uses adaptive schedule: batch 10 (50 trials), 20 (40 trials), 30+ (30 trials)
+    run_optimization : bool, default=True
+        Enable/disable periodic optimization
+    optimization_trials : dict or None, default=None
+        Custom trial counts per batch. Format: {batch_num: trials}
+        Example: {10: 50, 20: 40, 30: 30}
     
     Returns
     -------
-    tuple : (stage2_model, final_score)
+    tuple : (stage2_model, final_score, memory_used, elapsed_time)
         - stage2_model: trained DNN model
         - final_score: AUC on stage 2 validation set
+        - memory_used: Memory used in MB
+        - elapsed_time: Time elapsed in seconds
     """
     print(f"\n{'=' * 80}")
     print(f"BATCH COMPLETE: Training stage 2 DNN on {len(ensemble_models)} models")
     print(f"{'=' * 80}")
+    
+    # Check if we should run hyperparameter optimization
+    batch_number = len(ensemble_models) // ensemble_config.STAGE2_DNN_CONFIG['retrain_frequency']
+    
+    # Adaptive optimization schedule (GPU-optimized)
+    if optimization_trials is None:
+        optimization_trials = {
+            1: 50,   # First batch: thorough baseline (50 trials × 3 exec = ~45 min on GPU)
+            2: 40,   # Second batch: refine (40 trials × 3 exec = ~30 min)
+            3: 30,   # Third batch and beyond: adapt (30 trials × 2-3 exec = ~15-20 min)
+        }
+    
+    if optimize_every_n_batches is None:
+        # Default: optimize at batches 1, 2, then every 3rd batch (3, 6, 9, etc.)
+        should_optimize = (
+            run_optimization and 
+            batch_number > 0 and
+            (batch_number <= 2 or batch_number % 3 == 0)
+        )
+    else:
+        # Custom frequency
+        should_optimize = (
+            run_optimization and 
+            batch_number > 0 and 
+            batch_number % optimize_every_n_batches == 0
+        )
+    
+    if should_optimize:
+        # Determine trial count for this batch
+        trials = optimization_trials.get(batch_number, 30)  # Default to 30 for later batches
+        executions = 3 if batch_number <= 2 else 2  # More executions for early batches
+        
+        optimize_and_update_config(
+            ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_val_s2,
+            max_trials=trials, executions_per_trial=executions
+        )
     
     # Track memory and time
     import time
@@ -53,42 +246,56 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
     process = psutil.Process(os.getpid())
     start_memory = process.memory_info().rss / (1024 ** 2)  # MB
     
-    # Get all predictions on stage 1 validation set
-    all_stage1_preds = []
+    # Conservative approach: maximize training data while keeping small validation set
+    # Use full X_val_s1 (140k) + 90% of X_val_s2 (126k) = 266k for training
+    # Keep 10% of X_val_s2 (14k) as held-out validation for early stopping
+    
+    # Get predictions on X_val_s1 (will use all for training)
+    all_stage1_preds_s1 = []
     for model in ensemble_models:
         if hasattr(model, 'predict_proba'):
             pred = model.predict_proba(X_val_s1)[:, 1]
         else:
             pred = model.decision_function(X_val_s1)
-        all_stage1_preds.append(pred)
+        all_stage1_preds_s1.append(pred)
     
-    X_stage2_train_full = np.column_stack(all_stage1_preds)
-    y_stage2_train_full = y_val_s1.values
+    # Get predictions on X_val_s2 (will split 90/10)
+    all_stage1_preds_s2 = []
+    for model in ensemble_models:
+        if hasattr(model, 'predict_proba'):
+            pred = model.predict_proba(X_val_s2)[:, 1]
+        else:
+            pred = model.decision_function(X_val_s2)
+        all_stage1_preds_s2.append(pred)
     
-    # Sample for training
-    sample_size = min(50000, len(X_stage2_train_full))
-    sample_indices = np.random.choice(len(X_stage2_train_full), size=sample_size, replace=False)
-    X_stage2_sample = X_stage2_train_full[sample_indices]
-    y_stage2_sample = y_stage2_train_full[sample_indices]
+    # Stack predictions
+    X_stage2_s1 = np.column_stack(all_stage1_preds_s1)
+    X_stage2_s2 = np.column_stack(all_stage1_preds_s2)
+    y_stage2_s1 = y_val_s1.values
+    y_stage2_s2 = y_val_s2.values
     
-    # Train/val split
-    split_idx = int(len(X_stage2_sample) * 0.8)
-    X_train_s2 = X_stage2_sample[:split_idx]
-    y_train_s2 = y_stage2_sample[:split_idx]
-    X_val_s2_internal = X_stage2_sample[split_idx:]
-    y_val_s2_internal = y_stage2_sample[split_idx:]
+    # Split X_val_s2 into training (90%) and validation (10%)
+    split_idx = int(len(X_stage2_s2) * 0.9)
+    X_stage2_s2_train = X_stage2_s2[:split_idx]
+    X_stage2_s2_val = X_stage2_s2[split_idx:]
+    y_stage2_s2_train = y_stage2_s2[:split_idx]
+    y_stage2_s2_val = y_stage2_s2[split_idx:]
+    
+    # Combine X_val_s1 (all) + X_val_s2 (90%) for training
+    X_train_s2 = np.vstack([X_stage2_s1, X_stage2_s2_train])
+    y_train_s2 = np.concatenate([y_stage2_s1, y_stage2_s2_train])
+    
+    # Use 10% of X_val_s2 as validation
+    X_val_s2_holdout = X_stage2_s2_val
+    y_val_s2_holdout = y_stage2_s2_val
     
     if stage2_model is None:
-        # First DNN training
-        print(f"\n  Building initial stage 2 DNN...")
+        # First DNN training - use config architecture
+        print(f"\n  Building initial stage 2 DNN from config...")
+        config = ensemble_config.STAGE2_DNN_CONFIG
         stage2_model = build_stage2_dnn(
             n_models=len(ensemble_models),
-            n_layers=1,
-            units_per_layer=32,
-            dropout=0.2,
-            batch_norm=False,
-            activation='relu',
-            learning_rate=0.001
+            config=config
         )
     else:
         # Transfer learning: build new DNN with more inputs, copy weights where possible
@@ -97,15 +304,11 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
         # Save old weights
         old_weights = stage2_model.get_weights()
         
-        # Build new model
+        # Build new model from config
+        config = ensemble_config.STAGE2_DNN_CONFIG
         new_model = build_stage2_dnn(
             n_models=len(ensemble_models),
-            n_layers=1,
-            units_per_layer=32,
-            dropout=0.2,
-            batch_norm=False,
-            activation='relu',
-            learning_rate=0.001
+            config=config
         )
         
         # Transfer weights: copy input layer weights for existing models
@@ -123,17 +326,17 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
         new_model.set_weights(new_weights)
         stage2_model = new_model
     
-    print(f"\n  Training stage 2 DNN...")
-    print(f"    Training samples: {len(X_train_s2):,}")
-    print(f"    Validation samples: {len(X_val_s2_internal):,}")
+    print(f"\n  Training stage 2 DNN (conservative: 95% train, 5% val)...")
+    print(f"    Training samples: {len(X_train_s2):,} (X_val_s1 + 90% X_val_s2)")
+    print(f"    Validation samples: {len(X_val_s2_holdout):,} (10% X_val_s2 holdout)")
     
     ensemble_id = f"batch_{len(ensemble_models)}"
     stage2_model, history = train_stage2_dnn(
         model=stage2_model,
         X_train=X_train_s2,
         y_train=y_train_s2,
-        X_val=X_val_s2_internal,
-        y_val=y_val_s2_internal,
+        X_val=X_val_s2_holdout,
+        y_val=y_val_s2_holdout,
         epochs=stage2_epochs,
         batch_size=stage2_batch_size,
         patience=stage2_patience,
