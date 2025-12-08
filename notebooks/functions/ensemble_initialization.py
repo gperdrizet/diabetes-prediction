@@ -207,11 +207,7 @@ def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1
     print(f"  Stage 1 validation AUC: {val_auc_s1:.6f}")
     print(f"  Stage 2 validation AUC: {founder_auc:.6f}")
     
-    # Save founder model for reference
-    model_path = ensemble_dir / 'founder_model.joblib'
-    joblib.dump(fitted_pipeline, model_path)
-    
-    # Log founder
+    # Log founder (model not saved - used for baseline score only)
     pipeline_hash = compute_pipeline_hash(fitted_pipeline, metadata)
     log_iteration(
         iteration=0,
