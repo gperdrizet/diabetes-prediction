@@ -108,7 +108,8 @@ def _train_worker(args, result_queue):
             iteration=iteration,
             random_state=random_state,
             base_preprocessor=base_preprocessor,
-            n_jobs=n_jobs
+            n_jobs=n_jobs,
+            n_input_features=X_train_sample.shape[1]
         )
 
         # Train pipeline on pre-sampled data

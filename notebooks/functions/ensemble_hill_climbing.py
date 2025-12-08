@@ -103,7 +103,8 @@ def generate_random_pipeline(
     iteration: int,
     random_state: int,
     base_preprocessor: Any,
-    n_jobs: int = 1
+    n_jobs: int = 1,
+    n_input_features: int = 22
 ) -> Tuple[Pipeline, Dict[str, Any]]:
     """Generate a random stage 1 pipeline with diverse feature engineering.
     
@@ -118,6 +119,9 @@ def generate_random_pipeline(
     n_jobs : int, optional
         Number of CPU cores to allocate to this model (default: 1).
         Used for parallelizable classifiers like RandomForest, KNN, ExtraTrees.
+    n_input_features : int, optional
+        Number of input features before preprocessing (default: 22).
+        Used to calculate feature counts after column sampling.
     
     Returns
     -------
@@ -190,7 +194,7 @@ def generate_random_pipeline(
     transformer_names = list(selected_transformer_names)
     
     # Calculate n_features after column sampling for transformers that need it
-    n_features_after_sampling = int(len(X_train.columns) * col_sample_pct)
+    n_features_after_sampling = int(n_input_features * col_sample_pct)
     
     for name in selected_transformer_names:
         TransformerClass = transformer_class_map[name]
@@ -244,7 +248,7 @@ def generate_random_pipeline(
         
         # Get hyperparameters from config
         # Calculate n_features after column sampling
-        n_features_after_sampling = int(len(X_train.columns) * col_sample_pct)
+        n_features_after_sampling = int(n_input_features * col_sample_pct)
         hyperparam_config = ensemble_config.DIM_REDUCTION_HYPERPARAMS[dim_reduction_name]
         hyperparams = _generate_hyperparameters(rng, hyperparam_config, n_features=n_features_after_sampling)
         

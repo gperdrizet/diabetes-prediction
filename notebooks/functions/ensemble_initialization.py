@@ -177,7 +177,8 @@ def train_founder_model(X_train_pool, X_val_s1, X_val_s2, y_train_pool, y_val_s1
     pipeline, metadata = generate_random_pipeline(
         iteration=0,
         random_state=random_state,
-        base_preprocessor=base_preprocessor
+        base_preprocessor=base_preprocessor,
+        n_input_features=X_train.shape[1]
     )
     
     print(f"  Pipeline config:")

@@ -73,7 +73,7 @@ CLASSIFIER_CONFIGS = {
         'hyperparameters': {
             'C': lambda rng: 10 ** rng.uniform(-1, 1),
             'loss': 'squared_hinge',
-            'max_iter': lambda rng: rng.choice([200, 300]),
+            'max_iter': lambda rng: rng.choice([500, 1000, 2000]),
             'class_weight': 'balanced',
             'dual': True,
             'tol': 1e-3
@@ -242,12 +242,12 @@ TRANSFORMER_HYPERPARAMS = {
     },
     'nystroem': {
         'kernel': lambda rng: rng.choice(['rbf', 'poly', 'sigmoid', 'cosine']),
-        'n_components': lambda rng, n_features=None: min(int(10 ** rng.uniform(1.5, 2.5)), n_features - 1) if n_features else int(10 ** rng.uniform(1.5, 2.5)),
+        'n_components': lambda rng, n_features=None: max(2, min(int(10 ** rng.uniform(1.5, 2.5)), n_features - 1)) if n_features and n_features > 2 else int(10 ** rng.uniform(1.5, 2.5)),
         'gamma': lambda rng, kernel: 10 ** rng.uniform(-3, 0) if kernel in ['rbf', 'poly', 'sigmoid'] else None,
         'degree': lambda rng, kernel: rng.randint(2, 5) if kernel == 'poly' else 3
     },
     'rbf_sampler': {
-        'n_components': lambda rng, n_features=None: min(int(10 ** rng.uniform(1.5, 2.5)), n_features - 1) if n_features else int(10 ** rng.uniform(1.5, 2.5)),
+        'n_components': lambda rng, n_features=None: max(2, min(int(10 ** rng.uniform(1.5, 2.5)), n_features - 1)) if n_features and n_features > 2 else int(10 ** rng.uniform(1.5, 2.5)),
         'gamma': lambda rng: 10 ** rng.uniform(-3, 0)
     },
     'power_transform': {
@@ -283,18 +283,18 @@ DIM_REDUCTION_HYPERPARAMS = {
         'whiten': False
     },
     'truncated_svd': {
-        'n_components': lambda rng, n_features: min(int(10 ** rng.uniform(0.7, 1.7)), n_features - 1) if n_features else int(10 ** rng.uniform(0.7, 1.7)),
+        'n_components': lambda rng, n_features: max(2, min(int(10 ** rng.uniform(0.7, 1.7)), n_features - 1)) if n_features and n_features > 2 else int(10 ** rng.uniform(0.7, 1.7)),
         'algorithm': 'randomized',
         'n_iter': 5
     },
     'fast_ica': {
-        'n_components': lambda rng, n_features: min(int(10 ** rng.uniform(0.7, 1.7)), n_features - 1) if n_features else int(10 ** rng.uniform(0.7, 1.7)),
+        'n_components': lambda rng, n_features: max(2, min(int(10 ** rng.uniform(0.7, 1.7)), n_features - 1)) if n_features and n_features > 2 else int(10 ** rng.uniform(0.7, 1.7)),
         'whiten': lambda rng: rng.choice(['unit-variance', 'arbitrary-variance', True, False]),
         'max_iter': lambda rng: rng.randint(200, 501),
         'algorithm': lambda rng: rng.choice(['parallel', 'deflation'])
     },
     'factor_analysis': {
-        'n_components': lambda rng, n_features: min(int(10 ** rng.uniform(0.7, 1.7)), n_features - 1) if n_features else int(10 ** rng.uniform(0.7, 1.7)),
+        'n_components': lambda rng, n_features: max(2, min(int(10 ** rng.uniform(0.7, 1.7)), n_features - 1)) if n_features and n_features > 2 else int(10 ** rng.uniform(0.7, 1.7)),
         'max_iter': 1000,
         'tol': 0.01
     }
@@ -305,7 +305,7 @@ DIM_REDUCTION_HYPERPARAMS = {
 # INITIAL SCALER CONFIGURATION
 # ==============================================================================
 
-# INITIAL_SCALER_OPTIONS = ['standard', 'minmax', 'robust']
+INITIAL_SCALER_OPTIONS = ['standard', 'minmax', 'robust']
 
 
 # ==============================================================================
