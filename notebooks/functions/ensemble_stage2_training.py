@@ -17,7 +17,7 @@ from . import ensemble_config
 
 
 def optimize_and_update_config(ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_val_s2,
-                               max_trials=30, executions_per_trial=3):
+                               max_trials=8, executions_per_trial=1, sample_size=0.30):
     """
     Run hyperparameter optimization and update ensemble_config.STAGE2_DNN_CONFIG.
     
@@ -27,18 +27,25 @@ def optimize_and_update_config(ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_
     3. Updates the global STAGE2_DNN_CONFIG dict in-memory
     4. Returns the optimized config for logging
     
+    OPTIMIZED FOR SPEED (online production):
+    - Default 8 trials (down from 30) - sufficient for small hyperparameter space
+    - Default 1 execution (down from 3) - early stopping provides regularization
+    - Default 30% sample (down from 100%) - faster while maintaining ~1,050+ training samples
+    
     Parameters
     ----------
     ensemble_models : list
         Current ensemble models to use for generating training data
     X_val_s1, y_val_s1 : arrays
-        Validation set 1 (will use all for training)
+        Validation set 1 (will sample for training)
     X_val_s2, y_val_s2 : arrays
-        Validation set 2 (will split 90/10 for train/val)
-    max_trials : int, default=30
+        Validation set 2 (will sample and split 90/10 for train/val)
+    max_trials : int, default=8
         Number of hyperparameter combinations to try
-    executions_per_trial : int, default=3
+    executions_per_trial : int, default=1
         Number of training runs per combination
+    sample_size : float, default=0.30
+        Fraction of data to use for optimization (0.30 = 30%)
     
     Returns
     -------
@@ -48,31 +55,46 @@ def optimize_and_update_config(ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_
     print(f"\n{'=' * 80}")
     print(f"RUNNING STAGE 2 DNN HYPERPARAMETER OPTIMIZATION")
     print(f"Ensemble size: {len(ensemble_models)} models")
+    print(f"Optimization settings (FAST for online production):")
+    print(f"  Trials: {max_trials}")
+    print(f"  Executions per trial: {executions_per_trial}")
+    print(f"  Sample size: {sample_size * 100:.0f}%")
+    print(f"  Estimated time: ~{max_trials * executions_per_trial * 4:.0f} minutes")
+    print(f"  (Based on observed ~7 min/trial on 50% sample, scaled to {sample_size * 100:.0f}% = ~4 min/trial)")
     print(f"{'=' * 80}")
     
-    # Generate Stage 1 predictions on both validation sets
-    print("\n  Generating Stage 1 predictions...")
+    # Sample data for faster optimization
+    sample_size_s1 = int(len(X_val_s1) * sample_size)
+    sample_size_s2 = int(len(X_val_s2) * sample_size)
+    
+    X_val_s1_sample = X_val_s1[:sample_size_s1]
+    y_val_s1_sample = y_val_s1[:sample_size_s1]
+    X_val_s2_sample = X_val_s2[:sample_size_s2]
+    y_val_s2_sample = y_val_s2[:sample_size_s2]
+    
+    # Generate Stage 1 predictions on sampled data
+    print(f"\n  Generating Stage 1 predictions on {sample_size * 100:.0f}% sample...")
     all_stage1_preds_s1 = []
     for model in ensemble_models:
         if hasattr(model, 'predict_proba'):
-            pred = model.predict_proba(X_val_s1)[:, 1]
+            pred = model.predict_proba(X_val_s1_sample)[:, 1]
         else:
-            pred = model.decision_function(X_val_s1)
+            pred = model.decision_function(X_val_s1_sample)
         all_stage1_preds_s1.append(pred)
     
     all_stage1_preds_s2 = []
     for model in ensemble_models:
         if hasattr(model, 'predict_proba'):
-            pred = model.predict_proba(X_val_s2)[:, 1]
+            pred = model.predict_proba(X_val_s2_sample)[:, 1]
         else:
-            pred = model.decision_function(X_val_s2)
+            pred = model.decision_function(X_val_s2_sample)
         all_stage1_preds_s2.append(pred)
     
     # Stack predictions
     X_stage2_s1 = np.column_stack(all_stage1_preds_s1)
     X_stage2_s2 = np.column_stack(all_stage1_preds_s2)
-    y_stage2_s1 = y_val_s1.values
-    y_stage2_s2 = y_val_s2.values
+    y_stage2_s1 = y_val_s1_sample.values if hasattr(y_val_s1_sample, 'values') else y_val_s1_sample
+    y_stage2_s2 = y_val_s2_sample.values if hasattr(y_val_s2_sample, 'values') else y_val_s2_sample
     
     # Conservative 95/5 split: X_val_s1 + 90% X_val_s2 for train, 10% X_val_s2 for val
     split_idx = int(len(X_stage2_s2) * 0.9)
