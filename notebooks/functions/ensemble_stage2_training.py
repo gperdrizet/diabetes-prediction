@@ -185,12 +185,12 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
         Current iteration number
     optimize_every_n_batches : int or None, default=None
         Run hyperparameter optimization every N batches (10, 20, 30, etc.)
-        If None, uses adaptive schedule: batch 10 (50 trials), 20 (40 trials), 30+ (30 trials)
+        If None, uses adaptive schedule: batches 1, 2, then every 3rd (3, 6, 9...)
     run_optimization : bool, default=True
-        Enable/disable periodic optimization
+        Enable/disable periodic optimization (enabled with fast settings)
     optimization_trials : dict or None, default=None
         Custom trial counts per batch. Format: {batch_num: trials}
-        Example: {10: 50, 20: 40, 30: 30}
+        Default: {1: 10, 2: 8, 3: 5} (fast settings to prevent hanging)
     
     Returns
     -------
@@ -200,19 +200,15 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
         - memory_used: Memory used in MB
         - elapsed_time: Time elapsed in seconds
     """
-    print(f"\n{'=' * 80}")
-    print(f"BATCH COMPLETE: Training stage 2 DNN on {len(ensemble_models)} models")
-    print(f"{'=' * 80}")
-    
     # Check if we should run hyperparameter optimization
     batch_number = len(ensemble_models) // ensemble_config.STAGE2_DNN_CONFIG['retrain_frequency']
     
-    # Adaptive optimization schedule (GPU-optimized)
+    # Adaptive optimization schedule (reduced to prevent hanging)
     if optimization_trials is None:
         optimization_trials = {
-            1: 50,   # First batch: thorough baseline (50 trials × 3 exec = ~45 min on GPU)
-            2: 40,   # Second batch: refine (40 trials × 3 exec = ~30 min)
-            3: 30,   # Third batch and beyond: adapt (30 trials × 2-3 exec = ~15-20 min)
+            1: 10,   # First batch: baseline exploration (10 trials × 1 exec = ~10-15 min)
+            2: 8,    # Second batch: refinement (8 trials × 1 exec = ~8-12 min)
+            3: 5,    # Third batch and beyond: quick adaptation (5 trials × 1 exec = ~5-8 min)
         }
     
     if optimize_every_n_batches is None:
@@ -232,13 +228,23 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
     
     if should_optimize:
         # Determine trial count for this batch
-        trials = optimization_trials.get(batch_number, 30)  # Default to 30 for later batches
-        executions = 3 if batch_number <= 2 else 2  # More executions for early batches
+        trials = optimization_trials.get(batch_number, 5)  # Default to 5 for later batches
+        executions = 1  # Single execution per trial (statistical confidence not critical)
+        
+        print(f"\n{'=' * 80}")
+        print(f"BATCH {batch_number}: Running hyperparameter optimization BEFORE training")
+        print(f"Ensemble size: {len(ensemble_models)} models")
+        print(f"{'=' * 80}")
         
         optimize_and_update_config(
             ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_val_s2,
             max_trials=trials, executions_per_trial=executions
         )
+    
+    # Now print training header
+    print(f"\n{'=' * 80}")
+    print(f"BATCH {batch_number}: Training stage 2 DNN on {len(ensemble_models)} models")
+    print(f"{'=' * 80}")
     
     # Track memory and time
     import time

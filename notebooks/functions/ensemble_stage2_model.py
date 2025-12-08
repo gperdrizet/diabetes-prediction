@@ -192,9 +192,11 @@ def optimize_stage2_hyperparameters(
     y_val : np.ndarray
         Validation labels.
     max_trials : int, default=30
-        Maximum number of trials (GPU-optimized default).
+        Maximum number of trials. WARNING: Each trial takes ~1-2 minutes.
+        Recommended: 5-10 trials for practical runtime.
     executions_per_trial : int, default=3
         Number of executions per trial for statistical confidence.
+        WARNING: Multiplies total time. Use 1 for faster optimization.
     project_name : str, default='stage2_tuning'
         Name for tuning project.
     directory : Path or None, default=None
@@ -273,14 +275,19 @@ def optimize_stage2_hyperparameters(
         restore_best_weights=True
     )
     
-    # Run tuning
+    # Run tuning with progress output
+    print(f"  Starting Keras Tuner search (this may take several minutes)...")
+    print(f"  Progress: Trial search running (max_trials={max_trials}, executions_per_trial={executions_per_trial})")
+    
     tuner.search(
         X_train, y_train,
         epochs=50,
         validation_data=(X_val, y_val),
         callbacks=[early_stop],
-        verbose=0
+        verbose=1  # Changed from 0 to 1 to show progress
     )
+    
+    print(f"  Tuner search complete! Extracting best model...")
     
     # Get best model
     best_model = tuner.get_best_models(num_models=1)[0]
