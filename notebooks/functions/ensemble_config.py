@@ -22,11 +22,11 @@ from sklearn.svm import LinearSVC
 
 ACTIVE_CLASSIFIERS = [
     'logistic', 'lasso', 'random_forest', 'linear_svc', 'sgd_classifier',
-    'extra_trees', 'adaboost', 'naive_bayes', 'lda', 'qda', 'ridge',
+    'extra_trees', 'naive_bayes', 'lda', 'ridge',
     'gradient_boosting', 'mlp', 'knn'
 ]
 
-DISABLED_CLASSIFIERS = []
+DISABLED_CLASSIFIERS = ['qda', 'adaboost']  # Disabled: too slow with large samples
 
 
 # ==============================================================================

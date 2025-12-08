@@ -40,12 +40,12 @@ def train_single_candidate(args):
     TimeoutError : If training exceeds timeout
     Exception : If training fails
     """
-    # Extract timeout from args (default 15 minutes = 900 seconds)
+    # Extract timeout from args (default 60 minutes = 3600 seconds)
     if len(args) == 9:
         timeout_seconds = args[8]
         args = args[:8]  # Remove timeout from args for worker
     else:
-        timeout_seconds = 900  # Default 15 minutes
+        timeout_seconds = 3600  # Default 60 minutes
     
     result_queue = Queue()
     
@@ -150,7 +150,7 @@ def _train_worker(args, result_queue):
 
 
 def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, y_train_pool,
-                           X_val_s1, y_val_s1, base_preprocessor, random_state, total_cpus=None, timeout_minutes=15):
+                           X_val_s1, y_val_s1, base_preprocessor, random_state, total_cpus=None, timeout_minutes=60):
     """
     Prepare a batch of training jobs for parallel execution.
     
@@ -180,7 +180,7 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
     total_cpus : int, optional
         Total CPUs available for allocation. If None, uses all available cores.
     timeout_minutes : int, optional
-        Timeout in minutes for each model training. Default is 15 minutes.
+        Timeout in minutes for each model training. Default is 60 minutes.
     
     Returns
     -------
