@@ -21,7 +21,7 @@ from sklearn.svm import LinearSVC
 
 
 # ==============================================================================
-# ACTIVE CLASSIFIERS (10 total)
+# ACTIVE CLASSIFIERS (13 total)
 # ==============================================================================
 
 ACTIVE_CLASSIFIERS = [
@@ -34,21 +34,18 @@ ACTIVE_CLASSIFIERS = [
     'naive_bayes',
     'lda',
     'qda',
-    'ridge'
+    'ridge',
+    'gradient_boosting',
+    'mlp',
+    'knn'
 ]
 
 
 # ==============================================================================
-# DISABLED CLASSIFIERS (3 total)
+# DISABLED CLASSIFIERS (0 total)
 # ==============================================================================
-# These classifiers cause 30+ minute timeouts and hold up entire batches.
-# Can be re-enabled with more aggressive hyperparameter constraints.
 
-DISABLED_CLASSIFIERS = [
-    'gradient_boosting',  # Sequential tree building is very slow
-    'mlp',                # Neural network with multiple layers is very slow
-    'knn'                 # Distance calculations on large datasets are slow
-]
+DISABLED_CLASSIFIERS = []
 
 
 # ==============================================================================
@@ -204,8 +201,8 @@ CLASSIFIER_CONFIGS = {
     
     'gradient_boosting': {
         'class': HistGradientBoostingClassifier,
-        'status': 'disabled',
-        'notes': 'DISABLED: Sequential tree building causes 30+ min timeouts. Was optimized but still too slow.',
+        'status': 'active',
+        'notes': 'Gradient boosting with histogram-based optimization. Sequential but efficient with limited iterations.',
         'hyperparameters': {
             'max_iter': lambda rng: int(10 ** rng.uniform(1.0, 1.7)),  # ~10 to 50
             'learning_rate': lambda rng: 10 ** rng.uniform(-2.0, 0),  # 0.01 to 1.0
@@ -218,8 +215,8 @@ CLASSIFIER_CONFIGS = {
     
     'mlp': {
         'class': MLPClassifier,
-        'status': 'disabled',
-        'notes': 'DISABLED: Multi-layer perceptron causes timeouts. Neural network training is too slow.',
+        'status': 'active',
+        'notes': 'Multi-layer perceptron neural network. Training time controlled with early stopping and limited iterations.',
         'hyperparameters': {
             'n_layers': lambda rng: rng.randint(1, 4),  # 1 to 3 hidden layers
             'layer_sizes': lambda rng, n_layers: tuple([int(10 ** rng.uniform(1.3, 2.3)) for _ in range(n_layers)]),
@@ -233,8 +230,8 @@ CLASSIFIER_CONFIGS = {
     
     'knn': {
         'class': KNeighborsClassifier,
-        'status': 'disabled',
-        'notes': 'DISABLED: Distance calculations on large datasets cause timeouts.',
+        'status': 'active',
+        'notes': 'K-Nearest Neighbors. Distance calculations optimized with limited sample sizes and efficient leaf size.',
         'hyperparameters': {
             'n_neighbors': lambda rng: int(10 ** rng.uniform(0.5, 1.5)),  # 3 to 30
             'weights': lambda rng: rng.choice(['uniform', 'distance']),
@@ -291,6 +288,46 @@ FEATURE_ENGINEERING_CONFIG = {
 DIM_REDUCTION_CONFIG = {
     'use_probability': 0.5,  # 50% chance to apply dimensionality reduction
     'available_methods': ['pca', 'truncated_svd', 'fast_ica', 'factor_analysis']
+}
+
+
+# ==============================================================================
+# STAGE 2 DNN META-LEARNER CONFIGURATION
+# ==============================================================================
+
+STAGE2_DNN_CONFIG = {
+    'description': 'Deep neural network meta-learner for Stage 2 ensemble aggregation',
+    'notes': 'Learns optimal weights for combining Stage 1 model predictions. '
+             'Trained on validation set 1, evaluated on validation set 2.',
+    'architecture': {
+        'input': 'Stage 1 model predictions (n_models,)',
+        'hidden_layers': [
+            {'units': 64, 'activation': 'relu', 'dropout': 0.3},
+            {'units': 32, 'activation': 'relu', 'dropout': 0.2},
+            {'units': 16, 'activation': 'relu', 'dropout': 0.1}
+        ],
+        'output': {'units': 1, 'activation': 'sigmoid'}
+    },
+    'training': {
+        'optimizer': 'Adam',
+        'learning_rate': 0.001,
+        'loss': 'binary_crossentropy',
+        'metrics': ['AUC', 'accuracy'],
+        'epochs': 100,
+        'batch_size': 128,
+        'early_stopping': {
+            'monitor': 'val_auc',
+            'patience': 10,
+            'mode': 'max',
+            'restore_best_weights': True
+        },
+        'retrain_frequency': 'Every 10 accepted models'
+    },
+    'data_splits': {
+        'training_pool': '60% of total data',
+        'validation_s1': '20% (Stage 2 training)',
+        'validation_s2': '20% (Stage 2 evaluation)'
+    }
 }
 
 
@@ -401,16 +438,7 @@ def print_classifier_summary():
             print(f"      • solver: auto, cholesky, lsqr")
             print(f"      • class_weight: balanced")
             print(f"      • tol: 1e-3")
-    
-    print(f"\n\nDISABLED CLASSIFIERS ({len(DISABLED_CLASSIFIERS)}):")
-    for name in DISABLED_CLASSIFIERS:
-        config = CLASSIFIER_CONFIGS[name]
-        print(f"\n  {name}:")
-        print(f"    Class: {config['class'].__name__}")
-        print(f"    Reason: {config['notes']}")
-        print(f"    Hyperparameter Space:")
-        
-        if name == 'gradient_boosting':
+        elif name == 'gradient_boosting':
             print(f"      • max_iter: ~10 to 50 (log uniform)")
             print(f"      • learning_rate: 0.01 to 1.0 (log uniform)")
             print(f"      • max_depth: None, 3, 5, 7, 10")
@@ -430,6 +458,71 @@ def print_classifier_summary():
             print(f"      • weights: uniform, distance")
             print(f"      • p: 1 (Manhattan), 2 (Euclidean)")
             print(f"      • leaf_size: 10 to 100 (log uniform)")
+    
+    print(f"\n\nDISABLED CLASSIFIERS ({len(DISABLED_CLASSIFIERS)}):")
+    if len(DISABLED_CLASSIFIERS) > 0:
+        for name in DISABLED_CLASSIFIERS:
+            config = CLASSIFIER_CONFIGS[name]
+            print(f"\n  {name}:")
+            print(f"    Class: {config['class'].__name__}")
+            print(f"    Reason: {config['notes']}")
+            print(f"    Hyperparameter Space:")
+            
+            if name == 'gradient_boosting':
+                print(f"      • max_iter: ~10 to 50 (log uniform)")
+                print(f"      • learning_rate: 0.01 to 1.0 (log uniform)")
+                print(f"      • max_depth: None, 3, 5, 7, 10")
+                print(f"      • l2_regularization: 0.0001 to 10 (log uniform)")
+                print(f"      • min_samples_leaf: 10 to 100 (log uniform)")
+                print(f"      • max_bins: 32, 64, 128, 255")
+            elif name == 'mlp':
+                print(f"      • n_layers: 1 to 3 hidden layers")
+                print(f"      • layer_sizes: 20-200 neurons per layer (log uniform)")
+                print(f"      • alpha: 0.00001 to 0.1 (log uniform)")
+                print(f"      • learning_rate_init: 0.0001 to 0.01 (log uniform)")
+                print(f"      • activation: relu, tanh, logistic")
+                print(f"      • max_iter: 100, 150, 200")
+                print(f"      • early_stopping: True")
+            elif name == 'knn':
+                print(f"      • n_neighbors: 3 to 30 (log uniform)")
+                print(f"      • weights: uniform, distance")
+                print(f"      • p: 1 (Manhattan), 2 (Euclidean)")
+                print(f"      • leaf_size: 10 to 100 (log uniform)")
+    else:
+        print("    None")
+    
+    # Stage 2 DNN Meta-Learner
+    print("\n" + "=" * 80)
+    print("STAGE 2 DNN META-LEARNER")
+    print("=" * 80)
+    print(f"\n{STAGE2_DNN_CONFIG['description']}")
+    print(f"\n{STAGE2_DNN_CONFIG['notes']}")
+    
+    print("\n  Architecture:")
+    print(f"    Input: {STAGE2_DNN_CONFIG['architecture']['input']}")
+    for i, layer in enumerate(STAGE2_DNN_CONFIG['architecture']['hidden_layers'], 1):
+        print(f"    Hidden Layer {i}: {layer['units']} units, {layer['activation']} activation, "
+              f"{layer['dropout']:.0%} dropout")
+    output = STAGE2_DNN_CONFIG['architecture']['output']
+    print(f"    Output: {output['units']} unit, {output['activation']} activation")
+    
+    print("\n  Training Configuration:")
+    training = STAGE2_DNN_CONFIG['training']
+    print(f"    • Optimizer: {training['optimizer']}")
+    print(f"    • Learning Rate: {training['learning_rate']}")
+    print(f"    • Loss: {training['loss']}")
+    print(f"    • Metrics: {', '.join(training['metrics'])}")
+    print(f"    • Epochs: {training['epochs']}")
+    print(f"    • Batch Size: {training['batch_size']}")
+    print(f"    • Early Stopping: monitor={training['early_stopping']['monitor']}, "
+          f"patience={training['early_stopping']['patience']}")
+    print(f"    • Retrain Frequency: {training['retrain_frequency']}")
+    
+    print("\n  Data Splits:")
+    splits = STAGE2_DNN_CONFIG['data_splits']
+    print(f"    • Training Pool: {splits['training_pool']}")
+    print(f"    • Validation S1: {splits['validation_s1']}")
+    print(f"    • Validation S2: {splits['validation_s2']}")
     
     print("\n" + "=" * 80)
 
