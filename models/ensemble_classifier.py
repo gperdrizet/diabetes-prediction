@@ -57,7 +57,7 @@ class RandomFeatureSelector(BaseEstimator, TransformerMixin):
         
         # Safety check: If input has 0 features, we can't proceed
         if n_features == 0:
-            raise ValueError(f"RandomFeatureSelector received 0 features. Check upstream transformers.")
+            raise ValueError("RandomFeatureSelector received 0 features. Check upstream transformers.")
         
         n_selected = max(1, int(n_features * self.feature_fraction))
         self.selected_indices_ = np.sort(rng.choice(n_features, size=n_selected, replace=False))
