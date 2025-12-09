@@ -157,26 +157,188 @@ def build_architecture_units(n_models: int, arch_type: str, base_units: int, n_l
         raise ValueError(f"Unknown architecture type: {arch_type}")
 
 
+def build_regularized_model_for_tuning(hp, n_models):
+    """Build model with strong regularization for Keras Tuner (internal use).
+    
+    This is the hyperparameter model builder used during optimization.
+    After optimization, use build_model_from_config() to rebuild the winner.
+    
+    Parameters
+    ----------
+    hp : HyperParameters
+        Keras Tuner hyperparameters object.
+    n_models : int
+        Number of stage 1 models (input dimension).
+    
+    Returns
+    -------
+    model : Sequential
+        Compiled Keras model.
+    metadata : dict
+        Hyperparameter values for logging.
+    """
+    # Expanded search space with regularization
+    arch_type = hp.Choice('architecture_type', values=['funnel', 'constant', 'pyramid'])
+    n_layers = hp.Int('n_layers', min_value=1, max_value=3)
+    base_units = hp.Choice('base_units', values=[16, 32, 64, 128])
+    
+    # Strong regularization
+    dropout = hp.Float('dropout', min_value=0.2, max_value=0.7)
+    l2_reg = hp.Float('l2_reg', min_value=1e-4, max_value=1e-2, sampling='log')
+    learning_rate = hp.Float('learning_rate', min_value=1e-5, max_value=1e-4, sampling='log')
+    
+    # Generate layer units based on architecture type
+    if arch_type == 'funnel':
+        # Decreasing units: [base, base//2, base//4, ...]
+        if n_layers == 1:
+            units_per_layer = [base_units]
+        elif n_layers == 2:
+            units_per_layer = [base_units, base_units // 2]
+        else:  # n_layers == 3
+            units_per_layer = [base_units, base_units // 2, base_units // 4]
+    
+    elif arch_type == 'constant':
+        # Same units per layer: [base, base, base, ...]
+        units_per_layer = [base_units] * n_layers
+    
+    elif arch_type == 'pyramid':
+        # Increasing then decreasing: [base//2, base, base//2] or similar
+        if n_layers == 1:
+            units_per_layer = [base_units]
+        elif n_layers == 2:
+            units_per_layer = [base_units // 2, base_units]
+        else:  # n_layers == 3
+            units_per_layer = [base_units // 2, base_units, base_units // 2]
+    
+    # Build model
+    from tensorflow.keras import regularizers
+    model = models.Sequential()
+    model.add(layers.Input(shape=(n_models,)))
+    
+    for units in units_per_layer:
+        model.add(layers.Dense(
+            units,
+            activation='relu',
+            kernel_regularizer=regularizers.l2(l2_reg)
+        ))
+        model.add(layers.Dropout(dropout))
+    
+    # Output layer
+    model.add(layers.Dense(1, activation='sigmoid'))
+    
+    # Compile
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+        loss='binary_crossentropy',
+        metrics=[keras.metrics.AUC(name='auc')]
+    )
+    
+    return model, {
+        'architecture_type': arch_type,
+        'n_layers': n_layers,
+        'base_units': base_units,
+        'units_per_layer': units_per_layer,
+        'dropout': dropout,
+        'l2_reg': l2_reg,
+        'learning_rate': learning_rate
+    }
+
+
+def build_model_from_config(config: dict, n_models: int) -> Tuple[models.Sequential, List[int]]:
+    """Build model from hyperparameter configuration (for retraining).
+    
+    Use this to rebuild the winning model after hyperparameter optimization.
+    
+    Parameters
+    ----------
+    config : dict
+        Configuration with keys: architecture_type, n_layers, base_units,
+        dropout, l2_reg, learning_rate.
+    n_models : int
+        Number of stage 1 models (input dimension).
+    
+    Returns
+    -------
+    model : Sequential
+        Compiled Keras model.
+    units_per_layer : list of int
+        Units for each layer (for inspection).
+    """
+    # Extract hyperparameters
+    arch_type = config['architecture_type']
+    n_layers = config['n_layers']
+    base_units = config['base_units']
+    dropout = config['dropout']
+    l2_reg = config['l2_reg']
+    learning_rate = config['learning_rate']
+    
+    # Generate layer units based on architecture type
+    if arch_type == 'funnel':
+        if n_layers == 1:
+            units_per_layer = [base_units]
+        elif n_layers == 2:
+            units_per_layer = [base_units, base_units // 2]
+        else:  # n_layers == 3
+            units_per_layer = [base_units, base_units // 2, base_units // 4]
+    
+    elif arch_type == 'constant':
+        units_per_layer = [base_units] * n_layers
+    
+    elif arch_type == 'pyramid':
+        if n_layers == 1:
+            units_per_layer = [base_units]
+        elif n_layers == 2:
+            units_per_layer = [base_units // 2, base_units]
+        else:  # n_layers == 3
+            units_per_layer = [base_units // 2, base_units, base_units // 2]
+    
+    # Build model
+    from tensorflow.keras import regularizers
+    model = models.Sequential()
+    model.add(layers.Input(shape=(n_models,)))
+    
+    for units in units_per_layer:
+        model.add(layers.Dense(
+            units,
+            activation='relu',
+            kernel_regularizer=regularizers.l2(l2_reg)
+        ))
+        model.add(layers.Dropout(dropout))
+    
+    # Output layer
+    model.add(layers.Dense(1, activation='sigmoid'))
+    
+    # Compile
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+        loss='binary_crossentropy',
+        metrics=[keras.metrics.AUC(name='auc'), 'accuracy']
+    )
+    
+    return model, units_per_layer
+
+
 def optimize_stage2_hyperparameters(
     X_train: np.ndarray,
     y_train: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
-    max_trials: int = 30,
-    executions_per_trial: int = 3,
-    project_name: str = 'stage2_tuning',
+    max_trials: int = 8,
+    executions_per_trial: int = 1,
+    max_epochs: int = 50,
+    project_name: str = 'stage2_regularized_tuning',
     directory: Path = None
-) -> Tuple[models.Sequential, Dict[str, Any]]:
-    """Optimize stage 2 DNN hyperparameters using Keras Tuner.
+) -> Tuple[Dict[str, Any], float]:
+    """Optimize stage 2 DNN hyperparameters using Keras Tuner with regularization.
     
-    Searches focused hyperparameter space:
-    - Architecture types: pyramid, funnel
-    - Layers: 2-3 hidden layers
-    - Base units: 64, 128, 256
-    - Dropout: continuous 0.2-0.5
-    - Learning rate: log continuous 1e-4 to 1e-3
-    - Activation: relu only (best for this task)
-    - Batch norm: disabled (adds complexity)
+    UPDATED SEARCH SPACE (anti-overfitting focus):
+    - Architecture types: funnel, constant, pyramid (3 types)
+    - Layers: 1-3 hidden layers
+    - Base units: 16, 32, 64, 128 (smaller for regularization)
+    - Dropout: continuous 0.2-0.7 (stronger regularization)
+    - L2 regularization: log continuous 1e-4 to 1e-2
+    - Learning rate: log continuous 1e-5 to 1e-4 (lower for stability)
+    - Objective: val_loss (not val_auc) to prevent overfitting
     
     NOTE: This function requires keras_tuner to be installed.
     Install with: pip install keras-tuner
@@ -191,32 +353,37 @@ def optimize_stage2_hyperparameters(
         Validation predictions from stage 1 models.
     y_val : np.ndarray
         Validation labels.
-    max_trials : int, default=30
-        Maximum number of trials. WARNING: Each trial takes ~1-2 minutes.
-        Recommended: 5-10 trials for practical runtime.
-    executions_per_trial : int, default=3
-        Number of executions per trial for statistical confidence.
-        WARNING: Multiplies total time. Use 1 for faster optimization.
-    project_name : str, default='stage2_tuning'
+    max_trials : int, default=8
+        Number of hyperparameter combinations to try.
+    executions_per_trial : int, default=1
+        Number of training runs per combination.
+    max_epochs : int, default=50
+        Maximum epochs per trial (early stopping will trigger earlier).
+    project_name : str, default='stage2_regularized_tuning'
         Name for tuning project.
     directory : Path or None, default=None
         Directory for tuning results.
     
     Returns
     -------
-    best_model : Sequential
-        Best model from tuning.
     best_hyperparameters : dict
-        Best hyperparameters found including architecture_type.
+        Best hyperparameters found (architecture_type, n_layers, base_units,
+        dropout, l2_reg, learning_rate).
+    best_val_auc : float
+        Best validation AUC achieved.
     """
     # Import keras_tuner only when this function is called
     try:
         from keras_tuner import RandomSearch, Objective
+        import warnings
     except ImportError:
         raise ImportError(
             "keras_tuner is required for hyperparameter optimization. "
             "Install with: pip install keras-tuner"
         )
+    
+    # Suppress optimizer loading warning
+    warnings.filterwarnings('ignore', message='Skipping variable loading for optimizer')
     
     n_models = X_train.shape[1]
     
@@ -224,42 +391,15 @@ def optimize_stage2_hyperparameters(
         directory = Path('../models/keras_tuner')
     directory.mkdir(parents=True, exist_ok=True)
     
-    def build_model(hp):
-        """Build model with focused hyperparameters."""
-        # Focused search space
-        arch_type = hp.Choice('architecture_type', values=['pyramid', 'funnel'])
-        n_layers = hp.Int('n_layers', min_value=2, max_value=3)  # Skip 1 (too simple)
-        base_units = hp.Choice('base_units', values=[64, 128, 256])
-        dropout = hp.Float('dropout', min_value=0.2, max_value=0.5)
-        learning_rate = hp.Float('learning_rate', min_value=1e-4, max_value=1e-3, sampling='log')
-        
-        # Generate layer units based on architecture type
-        units_per_layer = build_architecture_units(n_models, arch_type, base_units, n_layers)
-        
-        # Build model with custom architecture
-        model = models.Sequential()
-        model.add(layers.Input(shape=(n_models,)))
-        
-        for units in units_per_layer:
-            model.add(layers.Dense(units, activation='relu'))
-            model.add(layers.Dropout(dropout))
-        
-        # Output layer
-        model.add(layers.Dense(1, activation='sigmoid'))
-        
-        # Compile
-        model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
-            loss='binary_crossentropy',
-            metrics=[keras.metrics.AUC(name='auc')]
-        )
-        
+    def build_model_wrapper(hp):
+        """Wrapper for Keras Tuner."""
+        model, hps = build_regularized_model_for_tuning(hp, n_models)
         return model
     
     # Create tuner
     tuner = RandomSearch(
-        build_model,
-        objective=Objective('val_auc', direction='max'),
+        build_model_wrapper,
+        objective=Objective('val_loss', direction='min'),  # Optimize val_loss, not AUC!
         max_trials=max_trials,
         executions_per_trial=executions_per_trial,
         directory=str(directory),
@@ -267,50 +407,69 @@ def optimize_stage2_hyperparameters(
         overwrite=True
     )
     
-    # Early stopping callback
+    # Early stopping and learning rate reduction callbacks
     early_stop = callbacks.EarlyStopping(
-        monitor='val_auc',
-        patience=5,
-        mode='max',
+        monitor='val_loss',
+        patience=10,
+        mode='min',
         restore_best_weights=True
     )
     
-    # Run tuning with progress output
-    print(f"  Starting Keras Tuner search (this may take several minutes)...")
-    print(f"  Progress: Trial search running (max_trials={max_trials}, executions_per_trial={executions_per_trial})")
+    reduce_lr = callbacks.ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=5,
+        min_lr=1e-7,
+        verbose=1
+    )
+    
+    # Run tuning
+    print(f"  Starting Keras Tuner search with regularization...")
+    print(f"  Settings: {max_trials} trials × {executions_per_trial} executions = {max_trials * executions_per_trial} trainings")
+    
+    start_time = time.time()
     
     tuner.search(
         X_train, y_train,
-        epochs=50,
+        epochs=max_epochs,
         validation_data=(X_val, y_val),
-        callbacks=[early_stop],
-        verbose=1  # Changed from 0 to 1 to show progress
+        callbacks=[early_stop, reduce_lr],
+        verbose=1,
+        batch_size=64  # Smaller batch for better generalization
     )
     
-    print(f"  Tuner search complete! Extracting best model...")
+    elapsed_time = time.time() - start_time
     
-    # Get best model
+    print(f"  Tuner search complete in {elapsed_time/60:.1f} minutes!")
+    
+    # Get best model and hyperparameters
     best_model = tuner.get_best_models(num_models=1)[0]
     best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
     
+    # Evaluate best model
+    y_pred_val = best_model.predict(X_val, verbose=0).flatten()
+    best_val_auc = roc_auc_score(y_val, y_pred_val)
+    
     # Extract hyperparameters
-    arch_type = best_hps.get('architecture_type')
-    n_layers = best_hps.get('n_layers')
-    base_units = best_hps.get('base_units')
-    
-    # Regenerate layer configuration for documentation
-    units_per_layer = build_architecture_units(n_models, arch_type, base_units, n_layers)
-    
     best_hyperparameters = {
-        'architecture_type': arch_type,
-        'n_layers': n_layers,
-        'base_units': base_units,
-        'units_per_layer': units_per_layer,
+        'architecture_type': best_hps.get('architecture_type'),
+        'n_layers': best_hps.get('n_layers'),
+        'base_units': best_hps.get('base_units'),
         'dropout': best_hps.get('dropout'),
+        'l2_reg': best_hps.get('l2_reg'),
         'learning_rate': best_hps.get('learning_rate')
     }
     
-    return best_model, best_hyperparameters
+    print(f"  Best validation AUC: {best_val_auc:.6f}")
+    print(f"  Best hyperparameters:")
+    print(f"    Architecture: {best_hyperparameters['architecture_type']}")
+    print(f"    Layers: {best_hyperparameters['n_layers']}")
+    print(f"    Base units: {best_hyperparameters['base_units']}")
+    print(f"    Dropout: {best_hyperparameters['dropout']:.3f}")
+    print(f"    L2 reg: {best_hyperparameters['l2_reg']:.6f}")
+    print(f"    Learning rate: {best_hyperparameters['learning_rate']:.6f}")
+    
+    return best_hyperparameters, best_val_auc
 
 
 def train_stage2_dnn(
@@ -319,13 +478,20 @@ def train_stage2_dnn(
     y_train: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
-    epochs: int = 100,
-    batch_size: int = 128,
-    patience: int = 10,
+    epochs: int = 200,
+    batch_size: int = 64,
+    patience: int = 15,
     log_path: Optional[Path] = None,
     iteration: Optional[int] = None
 ) -> Tuple[models.Sequential, Dict[str, Any]]:
-    """Train stage 2 DNN with early stopping.
+    """Train stage 2 DNN with early stopping and learning rate reduction.
+    
+    UPDATED DEFAULTS (anti-overfitting focus):
+    - Monitor val_loss (not val_auc) to prevent overfitting
+    - Patience = 15 (more tolerance for val_loss fluctuations)
+    - Batch size = 64 (smaller for better generalization)
+    - Max epochs = 200 (early stopping will trigger ~15-30 epochs)
+    - ReduceLROnPlateau for adaptive learning rate
     
     Parameters
     ----------
@@ -339,12 +505,12 @@ def train_stage2_dnn(
         Validation predictions from stage 1 models.
     y_val : np.ndarray
         Validation labels.
-    epochs : int, default=100
+    epochs : int, default=200
         Maximum number of epochs.
-    batch_size : int, default=128
+    batch_size : int, default=64
         Batch size.
-    patience : int, default=10
-        Early stopping patience.
+    patience : int, default=15
+        Early stopping patience (for val_loss).
     log_path : Path or None, default=None
         Path to log training metrics (used as ensemble_id string).
     iteration : int or None, default=None
@@ -357,13 +523,21 @@ def train_stage2_dnn(
     history : dict
         Training history.
     """
-    # Callbacks
+    # Callbacks - monitor val_loss instead of val_auc
     callback_list = [
         callbacks.EarlyStopping(
-            monitor='val_auc',
+            monitor='val_loss',
             patience=patience,
-            mode='max',
+            mode='min',
             restore_best_weights=True,
+            verbose=0
+        ),
+        callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=5,
+            mode='min',
+            min_lr=1e-7,
             verbose=0
         )
     ]

@@ -10,7 +10,8 @@ import os
 from datetime import datetime
 
 from .ensemble_stage2_model import (
-    build_stage2_dnn, train_stage2_dnn, evaluate_ensemble, evaluate_ensemble_with_cm, optimize_stage2_hyperparameters
+    build_stage2_dnn, build_model_from_config, train_stage2_dnn, evaluate_ensemble, 
+    evaluate_ensemble_with_cm, optimize_stage2_hyperparameters
 )
 from . import ensemble_database
 from . import ensemble_config
@@ -112,22 +113,23 @@ def optimize_and_update_config(ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_
     print(f"  Validation samples: {len(X_val):,} (10% X_val_s2)")
     print(f"  Running {max_trials} trials with {executions_per_trial} executions each...")
     
-    # Run optimization
+    # Run optimization (returns hyperparameters dict, not model)
     from pathlib import Path
     tuner_dir = Path('../models/keras_tuner')
     
-    best_model, best_hps = optimize_stage2_hyperparameters(
+    best_hps, best_val_auc = optimize_stage2_hyperparameters(
         X_train=X_train,
         y_train=y_train,
         X_val=X_val,
         y_val=y_val,
         max_trials=max_trials,
         executions_per_trial=executions_per_trial,
+        max_epochs=50,  # Fast optimization
         project_name=f'stage2_online_tuning_{len(ensemble_models)}models',
         directory=tuner_dir
     )
     
-    # Build optimized config dictionary
+    # Build optimized config dictionary with regularization
     optimized_config = {
         'architecture': {
             'hidden_layers': [],
@@ -138,42 +140,70 @@ def optimize_and_update_config(ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_
             'learning_rate': best_hps['learning_rate'],
             'loss': 'binary_crossentropy',
             'metrics': ['AUC', 'accuracy'],
-            'epochs': 100,
-            'batch_size': 128,
+            'epochs': 200,  # Max epochs (early stopping will trigger earlier)
+            'batch_size': 64,  # Smaller batch for better generalization
             'early_stopping': {
-                'monitor': 'val_auc',
-                'patience': 10,
-                'mode': 'max',
+                'monitor': 'val_loss',  # Monitor val_loss, not val_auc
+                'patience': 15,  # More patience for val_loss
+                'mode': 'min',
                 'restore_best_weights': True
             }
         },
-        'retrain_frequency': 10
+        'retrain_frequency': 10,
+        # Store raw hyperparameters for build_model_from_config()
+        'hyperparameters': {
+            'architecture_type': best_hps['architecture_type'],
+            'n_layers': best_hps['n_layers'],
+            'base_units': best_hps['base_units'],
+            'dropout': best_hps['dropout'],
+            'l2_reg': best_hps['l2_reg'],
+            'learning_rate': best_hps['learning_rate']
+        }
     }
     
-    # Add hidden layers from optimized architecture
-    for units in best_hps['units_per_layer']:
+    # Add hidden layers - need to reconstruct units_per_layer
+    arch_type = best_hps['architecture_type']
+    n_layers = best_hps['n_layers']
+    base_units = best_hps['base_units']
+    
+    # Regenerate layer units (same logic as build_model_from_config)
+    if arch_type == 'funnel':
+        if n_layers == 1:
+            units_per_layer = [base_units]
+        elif n_layers == 2:
+            units_per_layer = [base_units, base_units // 2]
+        else:  # n_layers == 3
+            units_per_layer = [base_units, base_units // 2, base_units // 4]
+    elif arch_type == 'constant':
+        units_per_layer = [base_units] * n_layers
+    elif arch_type == 'pyramid':
+        if n_layers == 1:
+            units_per_layer = [base_units]
+        elif n_layers == 2:
+            units_per_layer = [base_units // 2, base_units]
+        else:  # n_layers == 3
+            units_per_layer = [base_units // 2, base_units, base_units // 2]
+    
+    for units in units_per_layer:
         layer_config = {
             'units': int(units),
             'activation': 'relu',
-            'dropout': float(best_hps['dropout'])
+            'dropout': float(best_hps['dropout']),
+            'l2_reg': float(best_hps['l2_reg'])  # Store L2 regularization
         }
         optimized_config['architecture']['hidden_layers'].append(layer_config)
     
     # Update global config
     ensemble_config.STAGE2_DNN_CONFIG = optimized_config
     
-    # Evaluate best model
-    from sklearn.metrics import roc_auc_score
-    y_pred = best_model.predict(X_val, verbose=0).flatten()
-    val_auc = roc_auc_score(y_val, y_pred)
-    
     print(f"\n  Optimization complete!")
     print(f"  Best hyperparameters:")
-    print(f"    - Architecture: {best_hps['architecture_type']}")
-    print(f"    - Layers: {best_hps['n_layers']} ({best_hps['units_per_layer']})")
+    print(f"    - Architecture: {arch_type}")
+    print(f"    - Layers: {n_layers} ({units_per_layer})")
     print(f"    - Dropout: {best_hps['dropout']:.3f}")
+    print(f"    - L2 reg: {best_hps['l2_reg']:.6f}")
     print(f"    - Learning rate: {best_hps['learning_rate']:.6f}")
-    print(f"  Validation AUC: {val_auc:.6f}")
+    print(f"  Validation AUC: {best_val_auc:.6f}")
     print(f"  Config updated in-memory for subsequent training")
     print(f"{'=' * 80}\n")
     
@@ -321,13 +351,25 @@ def train_or_expand_stage2_model(ensemble_models, stage2_model, X_val_s1, y_val_
     X_val_s2_holdout = X_stage2_s2_val
     y_val_s2_holdout = y_stage2_s2_val
     
-    # Build fresh DNN from optimized config (re-optimization makes transfer learning pointless)
-    print(f"\n  Building stage 2 DNN from optimized config...")
+    # Build fresh DNN from optimized hyperparameters (re-optimization makes transfer learning pointless)
+    print(f"\n  Building stage 2 DNN from optimized hyperparameters...")
     config = ensemble_config.STAGE2_DNN_CONFIG
-    stage2_model = build_stage2_dnn(
-        n_models=len(ensemble_models),
-        config=config
-    )
+    
+    # Use build_model_from_config for regularized models
+    if 'hyperparameters' in config:
+        # New regularized workflow
+        stage2_model, units_per_layer = build_model_from_config(
+            config=config['hyperparameters'],
+            n_models=len(ensemble_models)
+        )
+        print(f"    Architecture: {config['hyperparameters']['architecture_type']}")
+        print(f"    Layers: {units_per_layer}")
+    else:
+        # Legacy workflow (backward compatibility)
+        stage2_model = build_stage2_dnn(
+            n_models=len(ensemble_models),
+            config=config
+        )
     
     print(f"\n  Training stage 2 DNN (conservative: 95% train, 5% val)...")
     print(f"    Training samples: {len(X_train_s2):,} (X_val_s1 + 90% X_val_s2)")
