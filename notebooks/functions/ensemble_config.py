@@ -21,12 +21,13 @@ from sklearn.svm import LinearSVC
 # ==============================================================================
 
 ACTIVE_CLASSIFIERS = [
-    'lasso', 'random_forest', 'linear_svc', 'sgd_classifier',
+    'logistic', 'qda', 'adaboost', 'lasso', 
+    'random_forest', 'linear_svc', 'sgd_classifier',
     'extra_trees', 'naive_bayes', 'lda', 'ridge',
     'gradient_boosting', 'mlp', 'knn'
 ]
 
-DISABLED_CLASSIFIERS = ['logistic', 'qda', 'adaboost']  # Disabled: too slow with large samples
+DISABLED_CLASSIFIERS = []  # Disabled: too slow with large samples
 
 
 # ==============================================================================
@@ -185,7 +186,7 @@ CLASSIFIER_CONFIGS = {
 # ==============================================================================
 
 SAMPLING_CONFIG = {
-    'row_sample_pct': {'min': 0.10, 'max': 0.40},
+    'row_sample_pct': {'min': 0.05, 'max': 0.15},
     'col_sample_pct': {'min': 0.30, 'max': 0.70}
 }
 
