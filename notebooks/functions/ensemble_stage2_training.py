@@ -494,7 +494,8 @@ def generate_pseudo_labels(
     label_column='diagnosed_diabetes',
     confidence_threshold=0.95,
     max_samples=None,
-    balance_classes=True
+    balance_classes=True,
+    target_class_ratio=None
 ):
     """
     Generate pseudo-labels from high-confidence predictions on unlabeled test data.
@@ -515,7 +516,13 @@ def generate_pseudo_labels(
         Maximum number of pseudo-labeled samples to return
         If None, returns all high-confidence samples
     balance_classes : bool, default=True
-        Ensure pseudo-labeled samples have balanced class distribution
+        Ensure pseudo-labeled samples have balanced class distribution (50/50)
+        If target_class_ratio is provided, this parameter is ignored
+    target_class_ratio : float or None, default=None
+        Target ratio for positive class (e.g., 0.14 = 14% positive, 86% negative)
+        If provided, overrides balance_classes parameter
+        If None and balance_classes=True, uses 50/50 split
+        If None and balance_classes=False, uses natural distribution from predictions
     
     Returns
     -------
@@ -574,8 +581,51 @@ def generate_pseudo_labels(
     y_pseudo = pd.Series(pseudo_labels[high_conf_mask], index=X_pseudo.index, name=label_column)
     confidences = stage2_probs[high_conf_mask]
     
-    # Balance classes if requested
-    if balance_classes and n_positive > 0 and n_negative > 0:
+    # Apply class distribution strategy
+    if target_class_ratio is not None and n_positive > 0 and n_negative > 0:
+        # Match target class ratio (e.g., original training data distribution)
+        positive_idx = y_pseudo[y_pseudo == 1].index
+        negative_idx = y_pseudo[y_pseudo == 0].index
+        
+        # Calculate target counts to achieve desired ratio
+        # If we have enough samples, use the ratio directly
+        # Otherwise, use what's available while maintaining ratio
+        total_available = len(y_pseudo)
+        target_positive_count = int(total_available * target_class_ratio)
+        target_negative_count = total_available - target_positive_count
+        
+        # Cap at available samples
+        actual_positive_count = min(target_positive_count, n_positive)
+        actual_negative_count = min(target_negative_count, n_negative)
+        
+        # If one class is limited, adjust the other to maintain ratio
+        if actual_positive_count < target_positive_count:
+            # Positive class is limited, reduce negative to maintain ratio
+            actual_negative_count = int(actual_positive_count * (1 - target_class_ratio) / target_class_ratio)
+            actual_negative_count = min(actual_negative_count, n_negative)
+        elif actual_negative_count < target_negative_count:
+            # Negative class is limited, reduce positive to maintain ratio
+            actual_positive_count = int(actual_negative_count * target_class_ratio / (1 - target_class_ratio))
+            actual_positive_count = min(actual_positive_count, n_positive)
+        
+        np.random.seed(315)  # For reproducibility
+        selected_positive = np.random.choice(positive_idx, size=actual_positive_count, replace=False)
+        selected_negative = np.random.choice(negative_idx, size=actual_negative_count, replace=False)
+        
+        selected_idx = np.concatenate([selected_positive, selected_negative])
+        X_pseudo = X_pseudo.loc[selected_idx]
+        y_pseudo = y_pseudo.loc[selected_idx]
+        
+        actual_ratio = actual_positive_count / (actual_positive_count + actual_negative_count)
+        print(f"\nTarget class distribution matching:")
+        print(f"  Target positive ratio: {target_class_ratio:.1%}")
+        print(f"  Actual positive ratio: {actual_ratio:.1%}")
+        print(f"  Positive samples: {actual_positive_count:,}")
+        print(f"  Negative samples: {actual_negative_count:,}")
+        print(f"  Total pseudo-labeled: {len(X_pseudo):,}")
+        
+    elif balance_classes and n_positive > 0 and n_negative > 0:
+        # Balance classes (50/50 split)
         min_class_size = min(n_positive, n_negative)
         
         # Sample equal numbers from each class
@@ -590,7 +640,7 @@ def generate_pseudo_labels(
         X_pseudo = X_pseudo.loc[selected_idx]
         y_pseudo = y_pseudo.loc[selected_idx]
         
-        print(f"\nClass balancing:")
+        print(f"\nClass balancing (50/50):")
         print(f"  Kept {min_class_size:,} samples per class")
         print(f"  Total pseudo-labeled: {len(X_pseudo):,}")
     

@@ -137,6 +137,7 @@ def _train_worker(args, result_queue):
         warnings.filterwarnings('ignore', category=RuntimeWarning, module='sklearn.decomposition._fastica')
         warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.preprocessing._discretization')
         warnings.filterwarnings('ignore', message='.*FastICA did not converge.*')
+        warnings.filterwarnings('ignore', message='.*FactorAnalysis did not converge.*')
         warnings.filterwarnings('ignore', message='.*invalid value encountered in divide.*')
         warnings.filterwarnings('ignore', message='.*Bins whose width are too small.*')
         
@@ -383,7 +384,7 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
             random_state=random_state + current_iter
         )
         
-        # Pass only the sampled data (much smaller!) + allocated CPU cores + worker_id + batch_num + timeout
+        # Pass only the sampled data (much smaller!) + allocated CPU cores + worker_id + batch_num + timeout + classifier_type
         # Data remains as DataFrames for ColumnTransformer compatibility
         batch_jobs.append((
             current_iter,
@@ -396,7 +397,8 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
             cores_per_job[i],  # Allocated CPU cores for this model
             i,                 # Worker ID (0 to batch_size-1)
             batch_num,         # Batch number for tracking
-            timeout_minutes * 60  # Timeout in seconds
+            timeout_minutes * 60,  # Timeout in seconds
+            classifier_types[i]    # Classifier type for this iteration
         ))
     
     return batch_jobs
