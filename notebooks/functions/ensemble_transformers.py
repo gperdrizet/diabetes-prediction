@@ -108,6 +108,8 @@ class RandomFeatureSelector(BaseEstimator, TransformerMixin):
             raise ValueError(f"RandomFeatureSelector received 0 features. Check upstream transformers.")
         
         n_selected = max(1, int(n_features * self.feature_fraction))
+        # Ensure we don't try to sample more than available
+        n_selected = min(n_selected, n_features)
         self.selected_indices_ = np.sort(rng.choice(n_features, size=n_selected, replace=False))
         self.n_features_in_ = n_features
         self.n_features_out_ = n_selected
@@ -149,9 +151,15 @@ class RatioTransformer(BaseEstimator, TransformerMixin):
         
         # Generate random pairs
         self.feature_pairs_ = []
-        for _ in range(self.n_features):
-            pair = rng.choice(n_input_features, size=2, replace=False)
-            self.feature_pairs_.append(tuple(pair))
+        # Need at least 2 features to create pairs
+        if n_input_features < 2:
+            # Fall back to using same feature (will result in 1.0 after ratio)
+            for _ in range(self.n_features):
+                self.feature_pairs_.append((0, 0))
+        else:
+            for _ in range(self.n_features):
+                pair = rng.choice(n_input_features, size=2, replace=False)
+                self.feature_pairs_.append(tuple(pair))
         
         self.n_features_in_ = n_input_features
         self.n_features_out_ = self.n_features
@@ -193,9 +201,15 @@ class ProductTransformer(BaseEstimator, TransformerMixin):
         n_input_features = X.shape[1]
         
         self.feature_pairs_ = []
-        for _ in range(self.n_features):
-            pair = rng.choice(n_input_features, size=2, replace=False)
-            self.feature_pairs_.append(tuple(pair))
+        # Need at least 2 features to create pairs
+        if n_input_features < 2:
+            # Fall back to using same feature (will result in feature squared)
+            for _ in range(self.n_features):
+                self.feature_pairs_.append((0, 0))
+        else:
+            for _ in range(self.n_features):
+                pair = rng.choice(n_input_features, size=2, replace=False)
+                self.feature_pairs_.append(tuple(pair))
         
         self.n_features_in_ = n_input_features
         self.n_features_out_ = self.n_features
@@ -237,9 +251,15 @@ class DifferenceTransformer(BaseEstimator, TransformerMixin):
         n_input_features = X.shape[1]
         
         self.feature_pairs_ = []
-        for _ in range(self.n_features):
-            pair = rng.choice(n_input_features, size=2, replace=False)
-            self.feature_pairs_.append(tuple(pair))
+        # Need at least 2 features to create pairs
+        if n_input_features < 2:
+            # Fall back to using same feature (will result in 0)
+            for _ in range(self.n_features):
+                self.feature_pairs_.append((0, 0))
+        else:
+            for _ in range(self.n_features):
+                pair = rng.choice(n_input_features, size=2, replace=False)
+                self.feature_pairs_.append(tuple(pair))
         
         self.n_features_in_ = n_input_features
         self.n_features_out_ = self.n_features
@@ -281,9 +301,15 @@ class SumTransformer(BaseEstimator, TransformerMixin):
         n_input_features = X.shape[1]
         
         self.feature_pairs_ = []
-        for _ in range(self.n_features):
-            pair = rng.choice(n_input_features, size=2, replace=False)
-            self.feature_pairs_.append(tuple(pair))
+        # Need at least 2 features to create pairs
+        if n_input_features < 2:
+            # Fall back to using same feature (will result in 2*feature)
+            for _ in range(self.n_features):
+                self.feature_pairs_.append((0, 0))
+        else:
+            for _ in range(self.n_features):
+                pair = rng.choice(n_input_features, size=2, replace=False)
+                self.feature_pairs_.append(tuple(pair))
         
         self.n_features_in_ = n_input_features
         self.n_features_out_ = self.n_features

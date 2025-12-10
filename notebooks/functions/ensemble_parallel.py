@@ -135,8 +135,10 @@ def _train_worker(args, result_queue):
         # Suppress expected warnings from random hyperparameter exploration
         warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.decomposition._fastica')
         warnings.filterwarnings('ignore', category=RuntimeWarning, module='sklearn.decomposition._fastica')
+        warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.preprocessing._discretization')
         warnings.filterwarnings('ignore', message='.*FastICA did not converge.*')
         warnings.filterwarnings('ignore', message='.*invalid value encountered in divide.*')
+        warnings.filterwarnings('ignore', message='.*Bins whose width are too small.*')
         
         start_time = time.time()
         start_timestamp = datetime.now().isoformat()
