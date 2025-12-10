@@ -1055,34 +1055,37 @@ elif page == "Timing":
             if not timeout_df.empty and 'classifier_type' in timeout_df.columns:
                 st.markdown("### Timeouts by classifier type")
                 
-                # Calculate timeout counts per classifier (excluding 'timeout' pseudo-type)
-                timeout_df_real = timeout_df[timeout_df['classifier_type'] != 'timeout']
-                ensemble_df_real = ensemble_df[ensemble_df['classifier_type'] != 'timeout']
+                # Calculate timeout counts per classifier
+                # Exclude special types (dnn_retrain, exception) from analysis
+                timeout_df_real = timeout_df[~timeout_df['classifier_type'].isin(['dnn_retrain', 'exception'])]
+                ensemble_df_real = ensemble_df[~ensemble_df['classifier_type'].isin(['dnn_retrain', 'exception', 'timeout'])]
                 
-                classifier_timeouts = timeout_df_real['classifier_type'].value_counts()
-                classifier_totals = ensemble_df_real['classifier_type'].value_counts()
-                classifier_timeout_rates = (classifier_timeouts / classifier_totals * 100).fillna(0)
-                
-                # Create combined dataframe
-                timeout_summary = pd.DataFrame({
-                    'Total Attempts': classifier_totals,
-                    'Timeouts': classifier_timeouts.reindex(classifier_totals.index, fill_value=0),
-                    'Timeout Rate (%)': classifier_timeout_rates.reindex(classifier_totals.index, fill_value=0)
-                }).sort_values('Timeout Rate (%)', ascending=False)
-                
-                # Bar chart - Timeout Rate
-                # Sort by timeout rate for horizontal display
-                timeout_summary_sorted = timeout_summary.sort_values('Timeout Rate (%)', ascending=True)
-                
-                fig_timeout_classifier = px.bar(
-                    x=timeout_summary_sorted['Timeout Rate (%)'],
-                    y=timeout_summary_sorted.index,
-                    orientation='h',
-                    title='Timeout rate by classifier type',
-                    labels={'x': 'Timeout rate (%)', 'y': 'Classifier type'},
-                    color_discrete_sequence=[COLORS['secondary']]
-                )
-                st.plotly_chart(fig_timeout_classifier, width="stretch")
+                if not timeout_df_real.empty and not ensemble_df_real.empty:
+                    classifier_timeouts = timeout_df_real['classifier_type'].value_counts()
+                    classifier_totals = ensemble_df_real['classifier_type'].value_counts()
+                    classifier_timeout_rates = (classifier_timeouts / classifier_totals * 100).fillna(0)
+                    
+                    # Create combined dataframe
+                    timeout_summary = pd.DataFrame({
+                        'Total Attempts': classifier_totals,
+                        'Timeouts': classifier_timeouts.reindex(classifier_totals.index, fill_value=0),
+                        'Timeout Rate (%)': classifier_timeout_rates.reindex(classifier_totals.index, fill_value=0)
+                    }).sort_values('Timeout Rate (%)', ascending=False)
+                    
+                    # Bar chart - Timeout Rate
+                    timeout_summary_sorted = timeout_summary.sort_values('Timeout Rate (%)', ascending=True)
+                    
+                    fig_timeout_classifier = px.bar(
+                        x=timeout_summary_sorted['Timeout Rate (%)'],
+                        y=timeout_summary_sorted.index,
+                        orientation='h',
+                        title='Timeout rate by classifier type',
+                        labels={'x': 'Timeout rate (%)', 'y': 'Classifier type'},
+                        color_discrete_sequence=[COLORS['secondary']]
+                    )
+                    st.plotly_chart(fig_timeout_classifier, width="stretch")
+                else:
+                    st.info("No timeout data available for classifier type breakdown.")
             
             st.markdown("---")
         
