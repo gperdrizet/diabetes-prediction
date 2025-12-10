@@ -10,12 +10,14 @@ import os
 import signal
 import warnings
 import numpy as np
+from datetime import datetime
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from concurrent.futures import TimeoutError
 from multiprocessing import Process, Queue
 
 from .ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash
+from . import ensemble_database
 
 
 def train_single_candidate(args):
@@ -29,7 +31,7 @@ def train_single_candidate(args):
     ----------
     args : tuple
         (iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, 
-         base_preprocessor, random_state, n_jobs, timeout_seconds)
+         base_preprocessor, random_state, n_jobs, worker_id, batch_num, timeout_seconds)
     
     Returns
     -------
@@ -40,17 +42,29 @@ def train_single_candidate(args):
     TimeoutError : If training exceeds timeout
     Exception : If training fails
     """
-    # Extract timeout from args (default 60 minutes = 3600 seconds)
-    if len(args) == 9:
+    # Extract timeout, worker_id, and batch_num from args
+    if len(args) == 11:
+        timeout_seconds = args[10]
+        worker_id = args[8]
+        batch_num = args[9]
+        worker_args = args[:10]  # Pass first 10 args to worker
+    elif len(args) == 9:
+        # Old format with timeout but no worker tracking
         timeout_seconds = args[8]
-        args = args[:8]  # Remove timeout from args for worker
+        worker_id = None
+        batch_num = None
+        worker_args = args[:8]
     else:
+        # Very old format
         timeout_seconds = 3600  # Default 60 minutes
+        worker_id = None
+        batch_num = None
+        worker_args = args
     
     result_queue = Queue()
     
     # Start worker process
-    process = Process(target=_train_worker, args=(args, result_queue))
+    process = Process(target=_train_worker, args=(worker_args, result_queue))
     process.start()
     
     # Wait for completion with timeout
@@ -66,6 +80,21 @@ def train_single_candidate(args):
                 pass
         parent.kill()
         process.join()  # Clean up zombie
+        
+        # Log timeout status if batch tracking is enabled
+        if worker_id is not None and batch_num is not None:
+            try:
+                ensemble_database.update_worker_status(
+                    worker_id=worker_id,
+                    iteration_num=args[0],  # iteration is always first arg
+                    batch_num=batch_num,
+                    status='timeout',
+                    end_time=datetime.now().isoformat(),
+                    runtime_sec=timeout_seconds
+                )
+            except Exception as e:
+                print(f"Warning: Failed to log timeout status: {e}")
+        
         raise TimeoutError(f"Training exceeded {timeout_seconds/60:.1f} minutes (iteration {args[0]})")
     
     # Check if we got a result
@@ -88,18 +117,29 @@ def _train_worker(args, result_queue):
     Parameters
     ----------
     args : tuple
-        Training arguments
+        Training arguments (iteration, X_train_sample, y_train_sample, X_val_s1, 
+        y_val_s1, base_preprocessor, random_state, n_jobs, worker_id, batch_num)
     result_queue : multiprocessing.Queue
         Queue to put the result in
     """
-    iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs = args
+    # Unpack args - now includes worker_id and batch_num
+    if len(args) == 10:
+        iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs, worker_id, batch_num = args
+    else:
+        # Fallback for old calling convention
+        iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1, base_preprocessor, random_state, n_jobs = args
+        worker_id = None
+        batch_num = None
     
     try:
         # Suppress expected warnings from random hyperparameter exploration
         warnings.filterwarnings('ignore', category=UserWarning, module='sklearn.decomposition._fastica')
+        warnings.filterwarnings('ignore', category=RuntimeWarning, module='sklearn.decomposition._fastica')
         warnings.filterwarnings('ignore', message='.*FastICA did not converge.*')
+        warnings.filterwarnings('ignore', message='.*invalid value encountered in divide.*')
         
         start_time = time.time()
+        start_timestamp = datetime.now().isoformat()
         process = psutil.Process(os.getpid())
         start_memory = process.memory_info().rss / (1024 ** 2)  # MB
         
@@ -111,6 +151,20 @@ def _train_worker(args, result_queue):
             n_jobs=n_jobs,
             n_input_features=X_train_sample.shape[1]
         )
+        
+        # Log worker status as 'running' if batch tracking is enabled
+        if worker_id is not None and batch_num is not None:
+            try:
+                ensemble_database.update_worker_status(
+                    worker_id=worker_id,
+                    iteration_num=iteration,
+                    batch_num=batch_num,
+                    status='running',
+                    classifier_type=metadata["classifier_type"],
+                    start_time=start_timestamp
+                )
+            except Exception as e:
+                print(f"Warning: Failed to log worker status: {e}")
 
         # Train pipeline on pre-sampled data
         fitted_pipeline = pipeline.fit(X_train_sample, y_train_sample)
@@ -132,6 +186,22 @@ def _train_worker(args, result_queue):
         pipeline_hash = compute_pipeline_hash(fitted_pipeline, metadata)
         
         training_time = time.time() - start_time
+        end_timestamp = datetime.now().isoformat()
+        
+        # Log worker status as 'completed' if batch tracking is enabled
+        if worker_id is not None and batch_num is not None:
+            try:
+                ensemble_database.update_worker_status(
+                    worker_id=worker_id,
+                    iteration_num=iteration,
+                    batch_num=batch_num,
+                    status='completed',
+                    end_time=end_timestamp,
+                    runtime_sec=training_time,
+                    pipeline_hash=pipeline_hash
+                )
+            except Exception as e:
+                print(f"Warning: Failed to log worker completion: {e}")
         
         result = {
             'iteration': iteration,
@@ -147,11 +217,26 @@ def _train_worker(args, result_queue):
         result_queue.put(('success', result))
         
     except Exception as e:
+        # Log worker status as 'error' if batch tracking is enabled
+        if worker_id is not None and batch_num is not None:
+            try:
+                ensemble_database.update_worker_status(
+                    worker_id=worker_id,
+                    iteration_num=iteration,
+                    batch_num=batch_num,
+                    status='error',
+                    end_time=datetime.now().isoformat(),
+                    runtime_sec=time.time() - start_time if 'start_time' in locals() else 0.0
+                )
+            except:
+                pass  # Don't let logging errors mask the real error
+        
         result_queue.put(('error', str(e)))
 
 
 def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, y_train_pool,
-                           X_val_s1, y_val_s1, base_preprocessor, random_state, total_cpus=None, timeout_minutes=60):
+                           X_val_s1, y_val_s1, base_preprocessor, random_state, total_cpus=None, 
+                           timeout_minutes=60, batch_num=0):
     """
     Prepare a batch of training jobs for parallel execution.
     
@@ -182,17 +267,25 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
         Total CPUs available for allocation. If None, uses all available cores.
     timeout_minutes : int, optional
         Timeout in minutes for each model training. Default is 60 minutes.
+    batch_num : int, optional
+        Batch number for tracking. Default is 0.
     
     Returns
     -------
     list
         List of tuples for parallel training, each containing pre-sampled training data,
-        allocated CPU cores, and timeout in seconds
+        allocated CPU cores, worker ID, batch number, and timeout in seconds
     """
     # Determine total CPUs available
     if total_cpus is None:
         import multiprocessing
         total_cpus = multiprocessing.cpu_count()
+    
+    # Clear batch status at the start of each new batch
+    try:
+        ensemble_database.clear_batch_status()
+    except Exception as e:
+        print(f"Warning: Failed to clear batch status: {e}")
     
     # NOTE: We keep data as DataFrames (NOT converted to numpy) because sklearn's
     # ColumnTransformer requires column names for feature selection.
@@ -288,7 +381,7 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
             random_state=random_state + current_iter
         )
         
-        # Pass only the sampled data (much smaller!) + allocated CPU cores + timeout
+        # Pass only the sampled data (much smaller!) + allocated CPU cores + worker_id + batch_num + timeout
         # Data remains as DataFrames for ColumnTransformer compatibility
         batch_jobs.append((
             current_iter,
@@ -299,6 +392,8 @@ def prepare_training_batch(iteration, batch_size, max_iterations, X_train_pool, 
             base_preprocessor,
             random_state + current_iter,
             cores_per_job[i],  # Allocated CPU cores for this model
+            i,                 # Worker ID (0 to batch_size-1)
+            batch_num,         # Batch number for tracking
             timeout_minutes * 60  # Timeout in seconds
         ))
     

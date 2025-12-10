@@ -37,8 +37,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Auto-refresh every 60 seconds
-st_autorefresh(interval=60000, key="datarefresh")
+# Disable automatic reruns to reduce flicker
+if 'auto_refresh_count' not in st.session_state:
+    st.session_state.auto_refresh_count = 0
 
 # Cache database queries with 60s TTL
 @st.cache_data(ttl=60)
@@ -62,6 +63,60 @@ def get_stage2_data():
         return df
     except Exception as e:
         return pd.DataFrame()
+
+@st.cache_data(ttl=5)  # Refresh every 5 seconds for live batch tracking
+def get_batch_status():
+    """Retrieve current batch status"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        df = pd.read_sql_query("SELECT * FROM batch_status ORDER BY worker_id", conn)
+        conn.close()
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=5)  # Refresh every 5 seconds for live batch tracking
+def get_batch_summary():
+    """Get batch summary statistics"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'timeout' THEN 1 ELSE 0 END) as timeout,
+                SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error,
+                AVG(CASE WHEN status = 'completed' THEN runtime_sec ELSE NULL END) as avg_runtime,
+                MAX(CASE WHEN status = 'completed' THEN runtime_sec ELSE NULL END) as max_runtime,
+                MAX(batch_num) as batch_num
+            FROM batch_status
+        ''')
+        result = cursor.fetchone()
+        conn.close()
+        
+        return {
+            'total_workers': result[0] or 0,
+            'running': result[1] or 0,
+            'completed': result[2] or 0,
+            'timeout': result[3] or 0,
+            'error': result[4] or 0,
+            'avg_runtime': result[5] or 0.0,
+            'max_runtime': result[6] or 0.0,
+            'batch_num': result[7] or 0
+        }
+    except Exception as e:
+        return {
+            'total_workers': 0,
+            'running': 0,
+            'completed': 0,
+            'timeout': 0,
+            'error': 0,
+            'avg_runtime': 0.0,
+            'max_runtime': 0.0,
+            'batch_num': 0
+        }
 
 @st.cache_data(ttl=60)
 def get_summary_stats(df):
@@ -237,24 +292,198 @@ st.sidebar.title("Navigation")
 
 # Use query parameters to persist page selection across refreshes
 if 'page' not in st.query_params:
-    st.query_params['page'] = "Performance"
+    st.query_params['page'] = "Current batch status"
 
 # Page selection with query params
+page_options = ["Current batch status", "Performance", "Diversity", "Stage 2 DNN", "Memory usage", "Timing"]
+current_page = st.query_params.get('page', 'Current batch status')
+
+# If stored page is not in current options (e.g., old "Batch Status"), default to first option
+if current_page not in page_options:
+    current_page = page_options[0]
+    st.query_params['page'] = current_page
+
 page = st.sidebar.radio(
     "Select page",
-    ["Performance", "Diversity", "Stage 2 DNN", "Memory usage", "Timing"],
+    page_options,
     label_visibility="collapsed",
-    index=["Performance", "Diversity", "Stage 2 DNN", "Memory usage", "Timing"].index(st.query_params.get('page', 'Performance'))
+    index=page_options.index(current_page)
 )
 
 # Update query params when page changes
 if page != st.query_params.get('page'):
     st.query_params['page'] = page
 
+# Conditional auto-refresh based on page
+# Batch status page: 5 seconds (live worker tracking)
+# Other pages: 60 seconds (less frequent updates)
+# Use limit parameter to reduce excessive refreshing
+if page == "Current batch status":
+    refresh_count = st_autorefresh(interval=5000, limit=None, key="refresh_batch_status")
+else:
+    refresh_count = st_autorefresh(interval=60000, limit=None, key="refresh_other_pages")
+
+# Store refresh count in session state
+st.session_state.auto_refresh_count = refresh_count
+
+# ====================
+# CURRENT BATCH STATUS PAGE
+# ====================
+if page == "Current batch status":
+    st.subheader("Current batch status")
+    
+    # Get batch status data
+    batch_df = get_batch_status()
+    batch_summary = get_batch_summary()
+    
+    if batch_summary['total_workers'] == 0:
+        st.info("No active batch. Waiting for training to start or next batch...")
+    else:
+        # Batch summary metrics
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        
+        with col1:
+            st.metric("Batch #", batch_summary['batch_num'])
+        
+        with col2:
+            st.metric("Total Workers", batch_summary['total_workers'])
+        
+        with col3:
+            st.metric("Running", batch_summary['running'], 
+                     delta_color="off")
+        
+        with col4:
+            st.metric("Completed", batch_summary['completed'],
+                     delta_color="normal")
+        
+        with col5:
+            st.metric("Timeout", batch_summary['timeout'],
+                     delta_color="inverse" if batch_summary['timeout'] > 0 else "off")
+        
+        with col6:
+            st.metric("Error", batch_summary['error'],
+                     delta_color="inverse" if batch_summary['error'] > 0 else "off")
+        
+        st.markdown("---")
+        
+        # Progress bar
+        if batch_summary['total_workers'] > 0:
+            progress_pct = (batch_summary['completed'] + batch_summary['timeout'] + batch_summary['error']) / batch_summary['total_workers'] * 100
+            st.markdown(f"""
+            <div style="margin-bottom: 1.5rem;">
+                <div style="font-size: 0.875rem; margin-bottom: 0.5rem;">
+                    Batch progress: {progress_pct:.0f}% ({batch_summary['completed'] + batch_summary['timeout'] + batch_summary['error']}/{batch_summary['total_workers']} workers finished)
+                </div>
+                <div style="background-color: rgba(255, 255, 255, 0.1); border-radius: 0.25rem; overflow: hidden; height: 1rem;">
+                    <div style="background-color: {COLORS['tertiary']}; height: 100%; width: {progress_pct}%; transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Runtime metrics
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if batch_summary['avg_runtime'] > 0:
+                avg_runtime = batch_summary['avg_runtime']
+                if avg_runtime < 60:
+                    runtime_display = f"{int(avg_runtime)}s"
+                else:
+                    runtime_display = f"{int(avg_runtime // 60)}m"
+                st.metric("Average runtime (completed)", runtime_display)
+        
+        with col2:
+            if batch_summary['max_runtime'] > 0:
+                max_runtime = batch_summary['max_runtime']
+                if max_runtime < 60:
+                    runtime_display = f"{int(max_runtime)}s"
+                else:
+                    runtime_display = f"{int(max_runtime // 60)}m"
+                st.metric("Max runtime (completed)", runtime_display)
+        
+        st.markdown("---")
+        
+        # Worker status table
+        if not batch_df.empty:
+            st.markdown("### Worker details")
+            
+            # Calculate runtime for display
+            display_df = batch_df.copy()
+            
+            # Parse timestamps and calculate runtime
+            for idx, row in display_df.iterrows():
+                if pd.notna(row['start_time']):
+                    start = datetime.fromisoformat(row['start_time'])
+                    
+                    if pd.notna(row['end_time']):
+                        end = datetime.fromisoformat(row['end_time'])
+                        runtime = (end - start).total_seconds()
+                    elif row['status'] == 'running':
+                        # Calculate current runtime for running workers
+                        runtime = (datetime.now() - start).total_seconds()
+                    else:
+                        runtime = row['runtime_sec'] if pd.notna(row['runtime_sec']) else 0
+                    
+                    # Format runtime: seconds if < 60, minutes if >= 60
+                    if runtime < 60:
+                        display_df.at[idx, 'runtime_display'] = f"{int(runtime)}s"
+                    else:
+                        display_df.at[idx, 'runtime_display'] = f"{int(runtime // 60)}m"
+                else:
+                    display_df.at[idx, 'runtime_display'] = "N/A"
+            
+            # Add status emoji/icon
+            status_icons = {
+                'running': '🔄',
+                'completed': '✅',
+                'timeout': '⏱️',
+                'error': '❌'
+            }
+            display_df['status_icon'] = display_df['status'].map(status_icons)
+            
+            # Select and rename columns for display
+            display_columns = {
+                'worker_id': 'Worker',
+                'iteration_num': 'Iteration',
+                'status_icon': '⚡',
+                'status': 'Status',
+                'classifier_type': 'Classifier',
+                'runtime_display': 'Runtime',
+                'last_update': 'Last Update'
+            }
+            
+            # Format last update times (12-hour clock)
+            display_df['last_update_display'] = display_df['last_update'].apply(
+                lambda x: datetime.fromisoformat(x).strftime('%I:%M:%S %p') if pd.notna(x) else 'N/A'
+            )
+            display_df['last_update'] = display_df['last_update_display']
+            
+            table_df = display_df[list(display_columns.keys())].rename(columns=display_columns)
+            
+            # Style the dataframe
+            def highlight_status(row):
+                if row['Status'] == 'running':
+                    return ['background-color: rgba(0, 119, 187, 0.2)'] * len(row)
+                elif row['Status'] == 'completed':
+                    return ['background-color: rgba(0, 153, 136, 0.2)'] * len(row)
+                elif row['Status'] == 'timeout':
+                    return ['background-color: rgba(238, 119, 51, 0.2)'] * len(row)
+                elif row['Status'] == 'error':
+                    return ['background-color: rgba(238, 51, 119, 0.2)'] * len(row)
+                return [''] * len(row)
+            
+            styled_table = table_df.style.apply(highlight_status, axis=1)
+            st.dataframe(styled_table, width='stretch', hide_index=True)
+            
+            # Auto-refresh message
+            st.caption("🔄 This page auto-refreshes every 5 seconds to show live worker status")
+        else:
+            st.warning("No worker data available for current batch")
+
 # ====================
 # PERFORMANCE PAGE
 # ====================
-if page == "Performance":
+elif page == "Performance":
     st.subheader("Performance metrics over time")
     
     if not ensemble_df.empty:

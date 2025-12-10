@@ -10,7 +10,7 @@ from sklearn.ensemble import (
 )
 from sklearn.linear_model import LogisticRegression, RidgeClassifier, SGDClassifier
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
-from sklearn.naive_bayes import BernoulliNB
+from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import LinearSVC
@@ -21,12 +21,12 @@ from sklearn.svm import LinearSVC
 # ==============================================================================
 
 ACTIVE_CLASSIFIERS = [
-    'logistic', 'lasso', 'random_forest', 'linear_svc', 'sgd_classifier',
+    'lasso', 'random_forest', 'linear_svc', 'sgd_classifier',
     'extra_trees', 'naive_bayes', 'lda', 'ridge',
     'gradient_boosting', 'mlp', 'knn'
 ]
 
-DISABLED_CLASSIFIERS = ['qda', 'adaboost']  # Disabled: too slow with large samples
+DISABLED_CLASSIFIERS = ['logistic', 'qda', 'adaboost']  # Disabled: too slow with large samples
 
 
 # ==============================================================================
@@ -37,10 +37,8 @@ CLASSIFIER_CONFIGS = {
     'logistic': {
         'class': LogisticRegression,
         'hyperparameters': {
-            'C': lambda rng: 10 ** rng.uniform(-1, 1),
-            'penalty': 'l2',
             'solver': lambda rng: rng.choice(['lbfgs', 'newton-cg', 'sag']),
-            'max_iter': lambda rng: rng.choice([100, 200, 300]),
+            'max_iter': 1000,
             'class_weight': 'balanced',
             'tol': 1e-3
         }
@@ -60,7 +58,7 @@ CLASSIFIER_CONFIGS = {
         'class': RandomForestClassifier,
         'hyperparameters': {
             'n_estimators': lambda rng: int(10 ** rng.uniform(1.0, 2.0)),
-            'max_depth': lambda rng: rng.choice([3, 5, 7, 10, 15, 20, None]),
+            'max_depth': lambda rng: rng.randint(2, 20),
             'min_samples_split': lambda rng: int(10 ** rng.uniform(0.3, 1.3)),
             'min_samples_leaf': lambda rng: int(10 ** rng.uniform(0, 1)),
             'max_features': lambda rng: rng.choice(['sqrt', 'log2', None]),
@@ -73,7 +71,7 @@ CLASSIFIER_CONFIGS = {
         'hyperparameters': {
             'C': lambda rng: 10 ** rng.uniform(-1, 1),
             'loss': 'squared_hinge',
-            'max_iter': 5000,
+            'max_iter': 50000,
             'class_weight': 'balanced',
             'dual': True,
             'tol': 1e-3
@@ -95,8 +93,8 @@ CLASSIFIER_CONFIGS = {
     'extra_trees': {
         'class': ExtraTreesClassifier,
         'hyperparameters': {
-            'n_estimators': lambda rng: int(10 ** rng.uniform(0.7, 1.5)),
-            'max_depth': lambda rng: rng.choice([3, 5, 7, 10]),
+            'n_estimators': lambda rng: rng.randint(2, 20),
+            'max_depth': lambda rng: rng.randint(2, 10),
             'min_samples_split': lambda rng: int(10 ** rng.uniform(0.7, 1.5)),
             'min_samples_leaf': lambda rng: int(10 ** rng.uniform(0.5, 1.3)),
             'max_features': lambda rng: rng.choice(['sqrt', 'log2']),
@@ -108,27 +106,27 @@ CLASSIFIER_CONFIGS = {
     'adaboost': {
         'class': AdaBoostClassifier,
         'hyperparameters': {
-            'n_estimators': lambda rng: int(10 ** rng.uniform(1.0, 2.0)),
+            'n_estimators': lambda rng: rng.randint(2, 50),
             'learning_rate': lambda rng: 10 ** rng.uniform(-1.0, 0.5),
             'algorithm': 'SAMME'
         }
     },
     'naive_bayes': {
-        'class': BernoulliNB,
+        'class': GaussianNB,
         'hyperparameters': {
-            'alpha': lambda rng: 10 ** rng.uniform(-2, 1),
-            'fit_prior': lambda rng: rng.choice([True, False]),
-            'binarize': lambda rng: rng.choice([None, 0.0, rng.uniform(0.3, 0.7)])
+            # 'alpha': lambda rng: 10 ** rng.uniform(-2, 1),
+            # 'fit_prior': lambda rng: rng.choice([True, False]),
+            # 'binarize': lambda rng: rng.choice([None, 0.0, rng.uniform(0.3, 0.7)])
         }
     },
     'lda': {
         'class': LinearDiscriminantAnalysis,
         'hyperparameters': {
-            'solver': lambda rng: rng.choice(['svd', 'lsqr', 'eigen']),
-            'shrinkage': lambda rng, solver: (
-                rng.choice([None, 'auto', rng.uniform(0.0, 1.0)]) 
-                if solver in ['lsqr', 'eigen'] else None
-            )
+            'solver': 'svd',
+            # 'shrinkage': lambda rng, solver: (
+            #     rng.choice([None, 'auto', rng.uniform(0.0, 1.0)]) 
+            #     if solver in ['lsqr'] else None
+            # )
         }
     },
     'qda': {
@@ -149,9 +147,9 @@ CLASSIFIER_CONFIGS = {
     'gradient_boosting': {
         'class': HistGradientBoostingClassifier,
         'hyperparameters': {
-            'max_iter': lambda rng: int(10 ** rng.uniform(1.0, 1.7)),
+            'max_iter': lambda rng: rng.randint(2, 10),
             'learning_rate': lambda rng: 10 ** rng.uniform(-2.0, 0),
-            'max_depth': lambda rng: rng.choice([None, 3, 5, 7, 10]),
+            'max_depth': lambda rng: rng.randint(2, 10),
             'l2_regularization': lambda rng: 10 ** rng.uniform(-4, 1),
             'min_samples_leaf': lambda rng: int(10 ** rng.uniform(1, 2)),
             'max_bins': lambda rng: rng.choice([32, 64, 128, 255])
@@ -172,7 +170,7 @@ CLASSIFIER_CONFIGS = {
     'knn': {
         'class': KNeighborsClassifier,
         'hyperparameters': {
-            'n_neighbors': lambda rng: int(10 ** rng.uniform(0.5, 1.5)),
+            'n_neighbors': lambda rng: rng.randint(3, 10),
             'weights': lambda rng: rng.choice(['uniform', 'distance']),
             'p': lambda rng: rng.choice([1, 2]),
             'leaf_size': lambda rng: int(10 ** rng.uniform(1, 2)),
@@ -260,8 +258,7 @@ TRANSFORMER_HYPERPARAMS = {
     },
     'noise_injector': {
         'feature_fraction': lambda rng: rng.uniform(0.0, 1.0),
-        'noise_scale_min': lambda rng: rng.uniform(0.001, 0.05),
-        'noise_scale_max': lambda rng: rng.uniform(0.05, 0.3)
+        'noise_scale_range': lambda rng: (rng.uniform(0.001, 0.05), rng.uniform(0.05, 0.3))
     }
 }
 

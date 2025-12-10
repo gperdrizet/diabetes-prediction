@@ -97,11 +97,28 @@ def init_database() -> None:
         )
     ''')
     
+    # Create batch_status table for tracking active workers
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS batch_status (
+            worker_id INTEGER PRIMARY KEY,
+            iteration_num INTEGER NOT NULL,
+            batch_num INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            classifier_type TEXT,
+            start_time TEXT NOT NULL,
+            end_time TEXT,
+            runtime_sec REAL,
+            pipeline_hash TEXT,
+            last_update TEXT NOT NULL
+        )
+    ''')
+    
     # Create indexes for common queries
     conn.execute('CREATE INDEX IF NOT EXISTS idx_iteration_num ON ensemble_log(iteration_num)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_ensemble_id ON ensemble_log(ensemble_id)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_stage2_ensemble ON stage2_log(ensemble_id)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_stage2_epoch ON stage2_log(epoch)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_batch_status ON batch_status(batch_num)')
     
     # Add confusion matrix columns if they don't exist (for existing databases)
     try:
@@ -381,3 +398,154 @@ def get_database_size() -> float:
     if db_path.exists():
         return db_path.stat().st_size / (1024 * 1024)
     return 0.0
+
+
+# ==============================================================================
+# BATCH STATUS TRACKING
+# ==============================================================================
+
+def clear_batch_status() -> None:
+    """Clear all batch status entries.
+    
+    Call this at the start of each new batch to reset worker tracking.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    try:
+        conn.execute('DELETE FROM batch_status')
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_worker_status(
+    worker_id: int,
+    iteration_num: int,
+    batch_num: int,
+    status: str,
+    classifier_type: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    runtime_sec: Optional[float] = None,
+    pipeline_hash: Optional[str] = None
+) -> None:
+    """Update or insert worker status in the batch_status table.
+    
+    Args:
+        worker_id: Unique worker identifier (0 to N_WORKERS-1)
+        iteration_num: Iteration number being processed
+        batch_num: Batch number (increments with each batch)
+        status: One of 'running', 'completed', 'timeout', 'error'
+        classifier_type: Type of classifier being trained (optional)
+        start_time: ISO timestamp when worker started (required for new entries)
+        end_time: ISO timestamp when worker completed (optional)
+        runtime_sec: Runtime in seconds (optional)
+        pipeline_hash: Hash of pipeline configuration (optional)
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    try:
+        # Check if worker exists
+        cursor = conn.cursor()
+        cursor.execute('SELECT worker_id FROM batch_status WHERE worker_id = ?', (worker_id,))
+        exists = cursor.fetchone() is not None
+        
+        current_time = datetime.now().isoformat()
+        
+        if exists:
+            # Update existing worker
+            conn.execute('''
+                UPDATE batch_status
+                SET iteration_num = ?,
+                    batch_num = ?,
+                    status = ?,
+                    classifier_type = COALESCE(?, classifier_type),
+                    end_time = COALESCE(?, end_time),
+                    runtime_sec = COALESCE(?, runtime_sec),
+                    pipeline_hash = COALESCE(?, pipeline_hash),
+                    last_update = ?
+                WHERE worker_id = ?
+            ''', (
+                iteration_num, batch_num, status, classifier_type,
+                end_time, runtime_sec, pipeline_hash, current_time, worker_id
+            ))
+        else:
+            # Insert new worker
+            if start_time is None:
+                start_time = current_time
+            
+            conn.execute('''
+                INSERT INTO batch_status (
+                    worker_id, iteration_num, batch_num, status, classifier_type,
+                    start_time, end_time, runtime_sec, pipeline_hash, last_update
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                worker_id, iteration_num, batch_num, status, classifier_type,
+                start_time, end_time, runtime_sec, pipeline_hash, current_time
+            ))
+        
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_batch_status() -> pd.DataFrame:
+    """Get current batch status for all workers.
+    
+    Returns:
+        DataFrame with columns: worker_id, iteration_num, batch_num, status,
+        classifier_type, start_time, end_time, runtime_sec, pipeline_hash,
+        last_update. Empty DataFrame if no data exists.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    try:
+        df = pd.read_sql_query(
+            'SELECT * FROM batch_status ORDER BY worker_id',
+            conn
+        )
+        return df
+    finally:
+        conn.close()
+
+
+def get_batch_summary() -> Dict:
+    """Get summary statistics for the current batch.
+    
+    Returns:
+        Dictionary containing:
+            - total_workers: Total number of workers in batch
+            - running: Number of workers currently running
+            - completed: Number of workers completed successfully
+            - timeout: Number of workers that timed out
+            - error: Number of workers that errored
+            - avg_runtime: Average runtime for completed workers (seconds)
+            - batch_num: Current batch number
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    try:
+        cursor = conn.cursor()
+        
+        # Get counts by status
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'timeout' THEN 1 ELSE 0 END) as timeout,
+                SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error,
+                AVG(CASE WHEN status = 'completed' THEN runtime_sec ELSE NULL END) as avg_runtime,
+                MAX(batch_num) as batch_num
+            FROM batch_status
+        ''')
+        
+        result = cursor.fetchone()
+        
+        return {
+            'total_workers': result[0] or 0,
+            'running': result[1] or 0,
+            'completed': result[2] or 0,
+            'timeout': result[3] or 0,
+            'error': result[4] or 0,
+            'avg_runtime': result[5] or 0.0,
+            'batch_num': result[6] or 0
+        }
+    finally:
+        conn.close()
