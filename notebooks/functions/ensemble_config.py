@@ -280,18 +280,18 @@ DIM_REDUCTION_HYPERPARAMS = {
         'whiten': False
     },
     'truncated_svd': {
-        'n_components': lambda rng, n_features: rng.randint(1, n_features),
+        'n_components': lambda rng, n_features: rng.randint(1, max(2, min(n_features, 15))),
         'algorithm': 'randomized',
         'n_iter': 5
     },
     'fast_ica': {
-        'n_components': lambda rng, n_features: rng.randint(1, n_features),
+        'n_components': lambda rng, n_features: rng.randint(1, max(2, min(n_features, 15))),
         'whiten': lambda rng: (False if rng.random() < 0.33 else rng.choice(['unit-variance', 'arbitrary-variance'])),
         'max_iter': lambda rng: rng.randint(200, 501),
         'algorithm': lambda rng: rng.choice(['parallel', 'deflation'])
     },
     'factor_analysis': {
-        'n_components': lambda rng, n_features: rng.randint(1, n_features),
+        'n_components': lambda rng, n_features: rng.randint(1, max(2, min(n_features, 15))),
         'max_iter': 1000,
         'tol': 0.01
     }
