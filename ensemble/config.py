@@ -177,7 +177,7 @@ class FeatureEngineeringConfig:
     n_transformers_range: Tuple[int, int] = (1, 3)
     available_transformers: List[str] = field(default_factory=lambda: [
         'ratio', 'product', 'difference', 'sum', 'reciprocal',
-        'square', 'sqrt', 'log', 'binning', 'iqr_clipper', 'kde', 'kmeans',
+        'square', 'sqrt', 'log', 'binning', 'kde', 'kmeans',
         'nystroem', 'rbf_sampler', 'power_transform', 'quantile_transform',
         'noise_injector'
     ])
@@ -732,9 +732,6 @@ def get_default_transformer_hyperparams() -> Dict[str, Dict[str, Any]]:
             'n_bins': lambda rng: rng.randint(3, 8),
             'strategy': lambda rng: rng.choice(['quantile', 'uniform']),
             'encode': 'ordinal'
-        },
-        'iqr_clipper': {
-            'iqr_multiplier': lambda rng: rng.uniform(1.5, 3.5)
         },
         'kde': {
             'bandwidth': lambda rng: rng.choice(['scott', 'silverman'])
