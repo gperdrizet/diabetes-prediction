@@ -1,6 +1,6 @@
-# Gradient Boosting Model for Diabetes Prediction
+# Gradient boosting model for diabetes prediction
 
-## Model Overview
+## Model overview
 
 This dataset contains a scikit-learn Pipeline object that chains together multiple preprocessing, feature engineering, and modeling steps into a single estimator. Pipelines ensure that all transformations are applied consistently during both training and inference, preventing data leakage and simplifying deployment. The pipeline was optimized using RandomizedSearchCV with extensive hyperparameter tuning.
 
@@ -17,33 +17,33 @@ Key features:
 - **Reproducible transformations**: All fitted parameters (encoders, feature engineering, clustering) are preserved
 - **Hyperparameter optimization**: Parameters across all pipeline steps were jointly optimized
 
-## Training Information
+## Training information
 
-- **Training date**: 2025-12-11 14:53:56
+- **Training date**: 2025-12-11 15:04:15
 - **Training samples**: ~70,000 (10% of full dataset)
 - **Cross-validation**: 3-fold CV with ROC-AUC scoring
 - **Optimization method**: RandomizedSearchCV with 200 iterations
 
-## Pipeline Components
+## Pipeline components
 
 ### 1. Preprocessing
 
-#### ID Column Removal
+#### ID column removal
 - **ID column dropper**: Automatically removes the 'id' column from input data (custom transformer)
 
-#### Numerical Features (14 Features)
+#### Numerical features (14 features)
 - **Features**: age, physical_activity_minutes_per_week, diet_score, sleep_hours_per_day, screen_time_hours_per_day, bmi, waist_to_hip_ratio, systolic_bp, diastolic_bp, heart_rate, cholesterol_total, hdl_cholesterol, ldl_cholesterol, triglycerides
 - **Transformation**: Passed through for feature engineering
 
-#### Ordinal Features (6 Features)
+#### Ordinal features (6 features)
 - **Ordinal encoding**: education_level, income_level, alcohol_consumption_per_week, family_history_diabetes, hypertension_history, cardiovascular_history
 - **Method**: OrdinalEncoder with predefined category orders
 
-#### Nominal Features (4 Features)
+#### Nominal features (4 features)
 - **One-hot encoding**: gender, ethnicity, smoking_status, employment_status
 - **Method**: OneHotEncoder (drop first category to avoid multicollinearity)
 
-### 2. Feature Engineering
+### 2. Feature engineering
 
 This pipeline creates extensive synthetic features to capture complex relationships:
 
@@ -70,7 +70,7 @@ This pipeline creates extensive synthetic features to capture complex relationsh
   - **Log features**: Natural log transform of all features
   - **Square root features**: Square root of all features
 
-### 3. Feature Selection
+### 3. Feature selection
 
 After feature engineering, the pipeline reduces dimensionality:
 
@@ -93,7 +93,7 @@ After feature engineering, the pipeline reduces dimensionality:
   - Validation fraction: 0.1
   - N iter no change: 50
 
-## Custom Transformers
+## Custom transformers
 
 The model uses multiple custom scikit-learn transformers defined in `gradient_boosting_transformers.py`:
 
@@ -103,7 +103,7 @@ Automatically removes the 'id' column from input DataFrames before processing.
 ### IQRClipper
 Clips outliers using the interquartile range (IQR) method (not used in final pipeline but available).
 
-### Feature Engineering Transformers
+### Feature engineering transformers
 - **DifferenceFeatures**: Creates difference features between all pairs of input features
 - **SumFeatures**: Creates sum features from all combinations of input features
 - **RatioFeatures**: Creates ratio features between all pairs of input features (handles division by zero)
