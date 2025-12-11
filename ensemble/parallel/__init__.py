@@ -1,10 +1,22 @@
-"""Parallel execution utilities.
+"""Parallel execution for ensemble training.
 
-This subpackage handles:
-- Batch scheduling
-- Worker process management
-- Timeout protection
+This package provides batch scheduling, worker management, and timeout
+handling for parallel training of ensemble candidates.
 """
 
-# Parallel modules will be implemented in Phase 7
-__all__ = []
+from .scheduler import (
+    prepare_training_batch,
+    get_batch_info
+)
+
+from .worker import (
+    train_single_candidate,
+    train_batch_parallel
+)
+
+__all__ = [
+    'prepare_training_batch',
+    'get_batch_info',
+    'train_single_candidate',
+    'train_batch_parallel'
+]
