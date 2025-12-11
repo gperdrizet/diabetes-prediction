@@ -96,7 +96,7 @@ class TestTransformers(unittest.TestCase):
     def setUp(self):
         """Set up test data."""
         np.random.seed(42)
-        self.X = pd.DataFrame(np.random.randn(100, 10))
+        self.X = np.random.randn(100, 10)
     
     def test_ratio_transformer(self):
         """Test RatioTransformer."""
@@ -168,11 +168,12 @@ class TestTransformers(unittest.TestCase):
         X_transformed = transformer.fit_transform(self.X)
         
         self.assertEqual(X_transformed.shape[0], self.X.shape[0])
-        self.assertEqual(X_transformed.shape[1], 4)
+        # Output is 1 (cluster label) + 4 (distances to each cluster) = 5
+        self.assertEqual(X_transformed.shape[1], 5)
     
     def test_noise_injector(self):
         """Test NoiseInjector."""
-        transformer = NoiseInjector(noise_level=0.1, random_state=42)
+        transformer = NoiseInjector(feature_fraction=0.5, random_state=42)
         X_transformed = transformer.fit_transform(self.X.copy())
         
         self.assertEqual(X_transformed.shape, self.X.shape)
@@ -192,8 +193,8 @@ class TestIntegration(unittest.TestCase):
             random_state=42
         )
         
-        self.X = pd.DataFrame(X)
-        self.y = pd.Series(y)
+        self.X = X  # Keep as numpy array for transformers
+        self.y = y
         
         config = EnsembleConfig()
         self.pool = ClassifierPool(config.stage1, random_state=42)

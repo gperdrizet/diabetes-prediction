@@ -39,8 +39,8 @@ class TestDataSplits(unittest.TestCase):
     def test_initialization(self):
         """Test DataSplits initialization."""
         splits = DataSplits(
-            df=self.df,
-            target_column='target',
+            data=self.df,
+            label_column='target',
             random_state=42
         )
         
@@ -49,8 +49,8 @@ class TestDataSplits(unittest.TestCase):
     def test_split_sizes(self):
         """Test that splits have correct proportions."""
         splits = DataSplits(
-            df=self.df,
-            target_column='target',
+            data=self.df,
+            label_column='target',
             random_state=42
         )
         
@@ -68,8 +68,8 @@ class TestDataSplits(unittest.TestCase):
     def test_stratification(self):
         """Test that stratification preserves class distribution."""
         splits = DataSplits(
-            df=self.df,
-            target_column='target',
+            data=self.df,
+            label_column='target',
             random_state=42
         )
         
@@ -91,8 +91,8 @@ class TestDataSplits(unittest.TestCase):
     def test_summary(self):
         """Test summary generation."""
         splits = DataSplits(
-            df=self.df,
-            target_column='target',
+            data=self.df,
+            label_column='target',
             random_state=42
         )
         
@@ -120,9 +120,9 @@ class TestConvenienceFunction(unittest.TestCase):
     
     def test_convenience_function(self):
         """Test convenience function creates valid splits."""
-        splits = create_three_way_split(
-            df=self.df,
-            target_column='target',
+        splits = DataSplits(
+            data=self.df,
+            label_column='target',
             random_state=42
         )
         
@@ -163,7 +163,14 @@ class TestPreprocessing(unittest.TestCase):
     
     def test_create_base_preprocessor(self):
         """Test base preprocessor creation."""
-        preprocessor = create_base_preprocessor(self.X)
+        numerical_features = ['age', 'height', 'weight', 'bmi']
+        ordinal_features = ['education', 'income']
+        nominal_features = ['gender', 'smoking_status']
+        preprocessor = create_base_preprocessor(
+            numerical_features=numerical_features,
+            ordinal_features=ordinal_features,
+            nominal_features=nominal_features
+        )
         
         self.assertIsNotNone(preprocessor)
         self.assertTrue(hasattr(preprocessor, 'fit'))
@@ -171,7 +178,14 @@ class TestPreprocessing(unittest.TestCase):
     
     def test_preprocessor_fit_transform(self):
         """Test preprocessor can fit and transform."""
-        preprocessor = create_base_preprocessor(self.X)
+        numerical_features = ['age', 'height', 'weight', 'bmi']
+        ordinal_features = ['education', 'income']
+        nominal_features = ['gender', 'smoking_status']
+        preprocessor = create_base_preprocessor(
+            numerical_features=numerical_features,
+            ordinal_features=ordinal_features,
+            nominal_features=nominal_features
+        )
         
         X_transformed = preprocessor.fit_transform(self.X)
         
@@ -197,25 +211,32 @@ class TestIntegration(unittest.TestCase):
     def test_complete_workflow(self):
         """Test complete data management workflow."""
         # Create splits
-        splits = create_three_way_split(
-            df=self.df,
-            target_column='target',
+        splits = DataSplits(
+            data=self.df,
+            label_column='target',
             random_state=42
         )
         
         # Get training data
-        X_train, y_train = splits.get_train_pool()
+        X_train = splits.X_train_pool
+        y_train = splits.y_train_pool
         self.assertGreater(len(X_train), 0)
         
         # Create preprocessor
-        preprocessor = create_base_preprocessor(X_train)
+        numerical_features = list(X_train.columns)
+        preprocessor = create_base_preprocessor(
+            numerical_features=numerical_features,
+            ordinal_features=[],
+            nominal_features=[]
+        )
         
         # Fit and transform
         X_transformed = preprocessor.fit_transform(X_train)
         self.assertEqual(len(X_transformed), len(X_train))
         
         # Transform validation data
-        X_val, y_val = splits.get_val_stage1()
+        X_val = splits.X_val_s1
+        y_val = splits.y_val_s1
         X_val_transformed = preprocessor.transform(X_val)
         self.assertEqual(len(X_val_transformed), len(X_val))
 

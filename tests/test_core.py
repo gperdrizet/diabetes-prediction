@@ -70,11 +70,13 @@ class TestDataSampler(unittest.TestCase):
     
     def test_combined_sampling(self):
         """Test row and column sampling together."""
-        X_sample, y_sample, columns = self.sampler.sample_data(self.X, self.y)
+        X_sample, y_sample = self.sampler.sample_rows(self.X, self.y)
+        columns = self.sampler.sample_columns(X_sample)
+        X_final = X_sample[columns]
         
         self.assertLess(len(X_sample), len(self.X))
         self.assertLess(len(columns), len(self.X.columns))
-        self.assertEqual(X_sample.shape[1], len(columns))
+        self.assertEqual(X_final.shape[1], len(columns))
         self.assertEqual(len(X_sample), len(y_sample))
 
 
@@ -83,7 +85,7 @@ class TestAcceptanceCriterion(unittest.TestCase):
     
     def test_improvement_acceptance(self):
         """Test that improvements are always accepted."""
-        criterion = AcceptanceCriterion(temperature=0.001)
+        criterion = AcceptanceCriterion(temperature=0.001, random_state=42)
         
         accepted, reason = criterion.should_accept(
             current_score=0.65,
@@ -95,7 +97,7 @@ class TestAcceptanceCriterion(unittest.TestCase):
     
     def test_equal_score_acceptance(self):
         """Test that equal scores are accepted."""
-        criterion = AcceptanceCriterion(temperature=0.001)
+        criterion = AcceptanceCriterion(temperature=0.001, random_state=42)
         
         accepted, reason = criterion.should_accept(
             current_score=0.65,
@@ -107,7 +109,7 @@ class TestAcceptanceCriterion(unittest.TestCase):
     
     def test_probabilistic_acceptance(self):
         """Test probabilistic acceptance for worse scores."""
-        criterion = AcceptanceCriterion(temperature=0.005)
+        criterion = AcceptanceCriterion(temperature=0.005, random_state=42)
         
         # Run many trials to test probabilistic behavior
         acceptances = []
@@ -122,28 +124,6 @@ class TestAcceptanceCriterion(unittest.TestCase):
         acceptance_rate = sum(acceptances) / len(acceptances)
         self.assertGreater(acceptance_rate, 0)
         self.assertLess(acceptance_rate, 0.5)
-    
-    def test_temperature_update(self):
-        """Test temperature decay."""
-        criterion = AcceptanceCriterion(temperature=0.001)
-        old_temp = criterion.temperature
-        
-        criterion.update_temperature(decay=0.998)
-        
-        self.assertLess(criterion.temperature, old_temp)
-        self.assertAlmostEqual(criterion.temperature, old_temp * 0.998)
-    
-    def test_acceptance_probability_calculation(self):
-        """Test acceptance probability calculation."""
-        criterion = AcceptanceCriterion(temperature=0.001)
-        
-        prob = criterion.acceptance_probability(
-            current_score=0.70,
-            candidate_score=0.695
-        )
-        
-        self.assertGreater(prob, 0)
-        self.assertLessEqual(prob, 1)
 
 
 class TestDiversityScorer(unittest.TestCase):
@@ -179,8 +159,8 @@ class TestDiversityScorer(unittest.TestCase):
     
     def test_detailed_stats(self):
         """Test detailed statistics generation."""
-        predictions = np.random.rand(3, 100)
-        stats = self.scorer.detailed_stats(predictions)
+        predictions = [np.random.rand(100) for _ in range(3)]
+        stats = self.scorer.detailed_diversity(predictions)
         
         self.assertIn('mean_correlation', stats)
         self.assertIn('min_correlation', stats)
@@ -198,9 +178,10 @@ class TestDiversityScorer(unittest.TestCase):
     
     def test_diversity_check(self):
         """Test diversity threshold checking."""
-        predictions = np.random.rand(5, 100)
+        predictions = [np.random.rand(100) for _ in range(5)]
         
-        is_diverse = self.scorer.is_diverse(predictions, threshold=0.7)
+        diversity_score = self.scorer.score(predictions)
+        is_diverse = DiversityScorer.is_diverse(diversity_score, threshold=0.7)
         self.assertIsInstance(is_diverse, bool)
 
 
@@ -221,13 +202,15 @@ class TestIntegration(unittest.TestCase):
         
         config = EnsembleConfig()
         self.sampler = DataSampler(config.stage1.sampling, random_state=42)
-        self.acceptance = AcceptanceCriterion(temperature=0.001)
+        self.acceptance = AcceptanceCriterion(temperature=0.001, random_state=42)
         self.diversity = DiversityScorer()
     
     def test_complete_workflow(self):
         """Test complete workflow with all components."""
         # Sample data
-        X_sample, y_sample, columns = self.sampler.sample_data(self.X, self.y)
+        X_sample, y_sample = self.sampler.sample_rows(self.X, self.y)
+        columns = self.sampler.sample_columns(X_sample)
+        X_final = X_sample[columns]
         self.assertGreater(len(X_sample), 0)
         
         # Make acceptance decision

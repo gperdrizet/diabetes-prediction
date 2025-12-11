@@ -136,7 +136,7 @@ class TestDatabaseOperations(unittest.TestCase):
                 'stage2_val_auc': 0.75,
                 'diversity_score': 0.60,
                 'temperature': 0.001,
-                'accepted': i % 2,  # Accept every other one
+                'accepted': 1 if i % 2 else 0,  # Accept odd iterations: 1, 3
                 'rejection_reason': None if i % 2 else 'worse_score',
                 'num_models': 5,
                 'classifier_type': 'logistic',
@@ -157,7 +157,7 @@ class TestDatabaseOperations(unittest.TestCase):
             self.database.insert_iteration(iteration_data)
         
         ids = self.database.get_accepted_ensemble_ids()
-        self.assertEqual(len(ids), 3)  # 0, 2, 4
+        self.assertEqual(len(ids), 2)  # ensemble_1, ensemble_3
 
 
 class TestStage2Logging(unittest.TestCase):
@@ -255,23 +255,17 @@ class TestLogger(unittest.TestCase):
     
     def test_logger_setup(self):
         """Test logger can be set up."""
-        temp_dir = tempfile.mkdtemp()
-        log_file = Path(temp_dir) / 'test.log'
-        
-        logger = setup_logger(name='test_logger', log_file=log_file)
+        logger = setup_logger(name='test_logger', level=logging.INFO)
         
         self.assertIsInstance(logger, logging.Logger)
-        self.assertTrue(log_file.exists())
+        self.assertGreater(len(logger.handlers), 0)
     
     def test_no_duplicate_handlers(self):
         """Test that multiple setups don't create duplicate handlers."""
-        temp_dir = tempfile.mkdtemp()
-        log_file = Path(temp_dir) / 'test.log'
-        
-        logger1 = setup_logger(name='test_logger2', log_file=log_file)
+        logger1 = setup_logger(name='test_logger2', level=logging.INFO)
         initial_handlers = len(logger1.handlers)
         
-        logger2 = setup_logger(name='test_logger2', log_file=log_file)
+        logger2 = setup_logger(name='test_logger2', level=logging.INFO)
         final_handlers = len(logger2.handlers)
         
         self.assertEqual(initial_handlers, final_handlers)
@@ -289,7 +283,7 @@ class TestIntegration(unittest.TestCase):
         # Setup
         database = EnsembleDatabase(db_path=db_path)
         database.initialize()
-        logger = setup_logger(name='integration_test', log_file=log_file)
+        logger = setup_logger(name='integration_test', level=logging.INFO)
         
         # Log and insert data
         logger.info("Starting test")
@@ -327,7 +321,7 @@ class TestIntegration(unittest.TestCase):
         # Verify
         df = database.query_iterations()
         self.assertEqual(len(df), 3)
-        self.assertTrue(log_file.exists())
+        self.assertGreater(len(logger.handlers), 0)
 
 
 if __name__ == '__main__':

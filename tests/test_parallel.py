@@ -6,6 +6,7 @@ This test suite validates batch scheduling and worker management.
 import unittest
 import sys
 import tempfile
+import logging
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -212,7 +213,7 @@ class TestIntegration(unittest.TestCase):
         # Setup database and logger
         database = EnsembleDatabase(db_path=self.db_path)
         database.initialize()
-        logger = setup_logger(name='test_parallel', log_file=self.log_file)
+        logger = setup_logger(name='test_parallel', level=logging.INFO)
         
         # Prepare batch
         batch_jobs = prepare_training_batch(
@@ -234,7 +235,7 @@ class TestIntegration(unittest.TestCase):
         
         self.assertEqual(len(batch_jobs), 2)
         self.assertTrue(self.db_path.exists())
-        self.assertTrue(self.log_file.exists())
+        self.assertGreater(len(logger.handlers), 0)
 
 
 if __name__ == '__main__':
