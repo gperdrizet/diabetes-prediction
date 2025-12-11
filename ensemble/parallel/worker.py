@@ -167,20 +167,24 @@ def _train_worker(
         mem_before = process.memory_info().rss / 1024 / 1024  # MB
         
         # Import here to avoid serialization issues
-        from sklearn.pipeline import Pipeline
-        from sklearn.dummy import DummyClassifier
+        import sys
+        from pathlib import Path
         
-        # Use DummyClassifier for fast testing of parallel execution framework
-        # Full pipeline generation will be integrated in Phase 8
-        # This allows us to test timeout handling, CPU allocation, database tracking
-        # without spending minutes training real models
-        clf = DummyClassifier(strategy='prior', random_state=random_state)
+        # Add notebooks/functions to path for generate_random_pipeline
+        notebooks_functions = Path(__file__).parent.parent.parent / 'notebooks' / 'functions'
+        if str(notebooks_functions) not in sys.path:
+            sys.path.insert(0, str(notebooks_functions))
         
-        # Create simple pipeline
-        candidate = Pipeline([
-            ('preprocessor', preprocessor),
-            ('classifier', clf)
-        ])
+        from ensemble_hill_climbing import generate_random_pipeline
+        
+        # Generate random pipeline with full feature engineering
+        candidate, metadata = generate_random_pipeline(
+            iteration=iteration,
+            random_state=random_state,
+            base_preprocessor=preprocessor,
+            n_jobs=n_jobs,
+            n_input_features=X_train.shape[1]
+        )
         
         # Train pipeline
         candidate.fit(X_train, y_train)
