@@ -2,6 +2,7 @@ __pycache__
 .venv
 .vscode
 data
+logs
 models/run*
 models/keras_tuner
-logs
+!/ensemble/data

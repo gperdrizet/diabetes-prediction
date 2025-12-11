@@ -5,5 +5,30 @@ This subpackage handles:
 - Structured logging
 """
 
-# Tracking modules will be implemented in Phase 6
-__all__ = []
+from .database import EnsembleDatabase
+from .logger import (
+    setup_logger,
+    log_phase_start,
+    log_phase_end,
+    log_iteration,
+    log_training_progress,
+    log_performance_metrics,
+    log_error,
+    log_warning,
+    log_success
+)
+
+__all__ = [
+    # Database
+    'EnsembleDatabase',
+    # Logging
+    'setup_logger',
+    'log_phase_start',
+    'log_phase_end',
+    'log_iteration',
+    'log_training_progress',
+    'log_performance_metrics',
+    'log_error',
+    'log_warning',
+    'log_success'
+]
