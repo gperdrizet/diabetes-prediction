@@ -8,6 +8,8 @@ from typing import List, Tuple, Optional, Any
 import numpy as np
 from sklearn.model_selection import train_test_split
 
+from ensemble.config import EnsembleConfig
+
 
 def prepare_training_batch(
     iteration: int,
@@ -60,7 +62,7 @@ def prepare_training_batch(
     Returns
     -------
     batch_jobs : list of tuple
-        List of arguments for each training job. Each tuple contains:
+        List of arguments for each training job. Each tuple contains 12 elements:
         (iteration, X_train_sample, y_train_sample, X_val_s1, y_val_s1,
          base_preprocessor, random_state, n_jobs, worker_id, batch_num,
          timeout_seconds, classifier_type)

@@ -191,47 +191,53 @@ if not check_database_exists():
 # Load data
 ensemble_df = get_ensemble_data()
 stage2_df = get_stage2_data()
+batch_df = get_batch_status()
 
-# Check if data exists
-if ensemble_df.empty:
-    st.warning("No training data found in database. Waiting for first iteration...")
+# Check if any data exists (ensemble_log or batch_status)
+has_ensemble_data = not ensemble_df.empty
+has_batch_data = not batch_df.empty
+
+if not has_ensemble_data and not has_batch_data:
+    st.warning("No training data found in database. Waiting for training to start...")
     st.info("The dashboard will auto-refresh every 60 seconds.")
     st.stop()
 
 # Calculate summary statistics
 stats = get_summary_stats(ensemble_df)
 
-# Header metrics
-col1, col2, col3, col4, col5, col6 = st.columns(6)
+# Header metrics - conditional on data availability
+if has_ensemble_data:
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-with col1:
-    st.metric("Total Iterations", stats['total_iterations'])
-    
-with col2:
-    st.metric("Ensemble Size", stats['ensemble_size'])
-    
-with col3:
-    st.metric("Best Stage 2 AUC", f"{stats['best_stage2_auc']:.4f}")
-    
-with col4:
-    st.metric("Temperature", f"{stats['current_temp']:.4f}")
-    
-with col5:
-    st.metric("Models/Hour", f"{stats['models_per_hour']:.1f}")
-    
-with col6:
-    if stats['last_update']:
-        last_update = datetime.fromisoformat(stats['last_update'])
-        time_diff = datetime.now() - last_update
-        minutes_ago = int(time_diff.total_seconds() / 60)
-        st.metric("Last Update", f"{minutes_ago}m ago")
-    else:
-        st.metric("Last Update", "N/A")
+    with col1:
+        st.metric("Total Iterations", stats['total_iterations'])
+        
+    with col2:
+        st.metric("Ensemble Size", stats['ensemble_size'])
+        
+    with col3:
+        st.metric("Best Stage 2 AUC", f"{stats['best_stage2_auc']:.4f}")
+        
+    with col4:
+        st.metric("Temperature", f"{stats['current_temp']:.4f}")
+        
+    with col5:
+        st.metric("Models/Hour", f"{stats['models_per_hour']:.1f}")
+        
+    with col6:
+        if stats['last_update']:
+            last_update = datetime.fromisoformat(stats['last_update'])
+            time_diff = datetime.now() - last_update
+            minutes_ago = int(time_diff.total_seconds() / 60)
+            st.metric("Last Update", f"{minutes_ago}m ago")
+        else:
+            st.metric("Last Update", "N/A")
 
-st.markdown("---")
-
-# Memory usage metrics (if available)
-if 'training_memory_mb' in ensemble_df.columns and not ensemble_df['training_memory_mb'].isna().all():
+    st.markdown("---")
+else:
+    st.info("⏳ Training in progress... Waiting for first completed model.")
+    # Memory usage metrics (if available)
+if has_ensemble_data and 'training_memory_mb' in ensemble_df.columns and not ensemble_df['training_memory_mb'].isna().all():
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -255,9 +261,11 @@ if 'training_memory_mb' in ensemble_df.columns and not ensemble_df['training_mem
     
     st.markdown("---")
 
-# Acceptance rate metric
-accept_rate = (stats['accepted_count'] / stats['total_iterations'] * 100) if stats['total_iterations'] > 0 else 0
-st.markdown(f"""
+# Acceptance rate and timeout metrics (only if ensemble data exists)
+if has_ensemble_data:
+    # Acceptance rate metric
+    accept_rate = (stats['accepted_count'] / stats['total_iterations'] * 100) if stats['total_iterations'] > 0 else 0
+    st.markdown(f"""
 <div style="margin-bottom: 1rem;">
     <div style="font-size: 0.875rem; margin-bottom: 0.5rem;">
         Acceptance rate: {accept_rate:.1f}% ({stats['accepted_count']} accepted / {stats['rejected_count']} rejected)
@@ -268,11 +276,11 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Timeout rate metric (if data available)
-if 'timeout' in ensemble_df.columns:
-    timeout_count = ensemble_df['timeout'].sum()
-    timeout_rate = (timeout_count / stats['total_iterations'] * 100) if stats['total_iterations'] > 0 else 0
-    st.markdown(f"""
+    # Timeout rate metric (if data available)
+    if 'timeout' in ensemble_df.columns:
+        timeout_count = ensemble_df['timeout'].sum()
+        timeout_rate = (timeout_count / stats['total_iterations'] * 100) if stats['total_iterations'] > 0 else 0
+        st.markdown(f"""
 <div style="margin-bottom: 1rem;">
     <div style="font-size: 0.875rem; margin-bottom: 0.5rem;">
         Timeout rate: {timeout_rate:.1f}% ({int(timeout_count)} timeouts / {stats['total_iterations']} iterations)

@@ -104,19 +104,19 @@ def train_single_candidate(
             f"({timeout_seconds}s)"
         )
     
-    # Check if result is available
-    if not result_queue.empty():
-        status, payload = result_queue.get()
+    # Get result from queue (blocking with timeout)
+    try:
+        status, payload = result_queue.get(timeout=5)
         
         if status == 'success':
             return payload
         elif status == 'error':
             logger.error(f"Iteration {iteration}: Training failed - {payload}")
             return None
-    
-    # Process ended without result
-    logger.error(f"Iteration {iteration}: Worker process ended without result")
-    return None
+    except:
+        # Queue was empty or timeout - process ended without result
+        logger.error(f"Iteration {iteration}: Worker process ended without result")
+        return None
 
 
 def _train_worker(
@@ -141,10 +141,14 @@ def _train_worker(
     result_queue : Queue
         Queue for passing results back to parent.
     """
-    # Unpack arguments
+    # Unpack arguments (12 elements - no config to avoid pickling lambdas)
     (iteration, X_train, y_train, X_val, y_val, preprocessor,
      random_state, n_jobs, worker_id, batch_num, timeout_seconds,
      classifier_type) = job_args
+    
+    # Instantiate config locally in worker process (avoids pickling lambdas)
+    from ensemble.config import EnsembleConfig
+    config = EnsembleConfig()
     
     # Suppress sklearn convergence warnings
     warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
@@ -169,19 +173,12 @@ def _train_worker(
         process = psutil.Process(os.getpid())
         mem_before = process.memory_info().rss / 1024 / 1024  # MB
         
-        # Import here to avoid serialization issues
-        import sys
-        from pathlib import Path
-        
-        # Add notebooks/functions to path for generate_random_pipeline
-        notebooks_functions = Path(__file__).parent.parent.parent / 'notebooks' / 'functions'
-        if str(notebooks_functions) not in sys.path:
-            sys.path.insert(0, str(notebooks_functions))
-        
-        from ensemble_hill_climbing import generate_random_pipeline
+        # Import refactored pipeline builder
+        from ensemble.stage1 import PipelineBuilder
         
         # Generate random pipeline with full feature engineering
-        candidate, metadata = generate_random_pipeline(
+        builder = PipelineBuilder(config)
+        candidate, metadata = builder.generate(
             iteration=iteration,
             random_state=random_state,
             base_preprocessor=preprocessor,
