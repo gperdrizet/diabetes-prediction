@@ -9,12 +9,14 @@ import psutil
 import os
 from datetime import datetime
 
-from .ensemble_stage2_model import (
+from ensemble_stage2_model import (
     build_stage2_dnn, build_model_from_config, train_stage2_dnn, evaluate_ensemble, 
     evaluate_ensemble_with_cm, optimize_stage2_hyperparameters
 )
-from . import ensemble_database
-from . import ensemble_config
+
+# Use absolute imports instead of relative imports
+import ensemble_database
+import ensemble_config
 
 
 def optimize_and_update_config(ensemble_models, X_val_s1, y_val_s1, X_val_s2, y_val_s2,

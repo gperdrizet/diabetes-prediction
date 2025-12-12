@@ -7,8 +7,9 @@ Handles hybrid scoring logic combining DNN and simple mean approaches.
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
-from .ensemble_hill_climbing import calculate_ensemble_diversity
-from .ensemble_stage2_model import evaluate_ensemble
+# Use absolute imports instead of relative imports
+from ensemble_hill_climbing import calculate_ensemble_diversity
+from ensemble_stage2_model import evaluate_ensemble
 
 
 def evaluate_candidate_ensemble(candidate_ensemble, ensemble_models, stage2_model, 

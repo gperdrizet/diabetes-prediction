@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 
 import numpy as np
-
-from . import ensemble_database
-from . import ensemble_config
 import pandas as pd
+
+# Use absolute imports instead of relative imports
+import ensemble_database
+import ensemble_config
 from scipy.stats import uniform, loguniform, randint
 from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
@@ -36,7 +37,8 @@ from sklearn.svm import LinearSVC
 from sklearn.linear_model import SGDClassifier
 from sklearn.kernel_approximation import Nystroem, RBFSampler
 
-from .ensemble_transformers import (
+# Use absolute imports instead of relative imports
+from ensemble_transformers import (
     CleanNumericTransformer, RandomFeatureSelector, RatioTransformer, ProductTransformer,
     DifferenceTransformer, SumTransformer, ReciprocalTransformer,
     SquareTransformer, SquareRootTransformer, LogTransformer,

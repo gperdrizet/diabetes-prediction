@@ -19,7 +19,8 @@ models_path = Path('../models').resolve()
 sys.path.insert(0, str(models_path))
 from logistic_regression_transformers import IQRClipper
 
-from .ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash, log_iteration
+# Use absolute imports instead of relative imports
+from ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash, log_iteration
 
 
 def create_data_splits(train_df, label, random_state):

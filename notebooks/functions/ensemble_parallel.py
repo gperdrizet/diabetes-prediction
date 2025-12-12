@@ -16,8 +16,10 @@ from sklearn.model_selection import train_test_split
 from concurrent.futures import TimeoutError
 from multiprocessing import Process, Queue
 
-from .ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash
-from . import ensemble_database
+from ensemble_hill_climbing import generate_random_pipeline, compute_pipeline_hash
+
+# Use absolute imports instead of relative imports
+import ensemble_database
 
 
 def train_single_candidate(args):

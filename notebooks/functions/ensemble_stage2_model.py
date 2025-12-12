@@ -17,7 +17,8 @@ from tensorflow import keras
 from tensorflow.keras import layers, models, callbacks
 from sklearn.metrics import roc_auc_score, confusion_matrix
 
-from . import ensemble_database
+# Use absolute imports instead of relative imports
+import ensemble_database
 
 # Note: keras_tuner only needed for optimize_stage2_hyperparameters function
 # Import on-demand if that function is used
