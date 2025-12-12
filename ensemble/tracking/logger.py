@@ -5,11 +5,16 @@ with proper structured logging.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from pathlib import Path
 from datetime import datetime
 
 
-def setup_logger(name: str = 'ensemble', level: int = logging.INFO) -> logging.Logger:
+def setup_logger(
+    name: str = 'ensemble',
+    level: int = logging.INFO,
+    log_file: Optional[Path] = None
+) -> logging.Logger:
     """Setup a logger with consistent formatting.
     
     Parameters
@@ -18,6 +23,9 @@ def setup_logger(name: str = 'ensemble', level: int = logging.INFO) -> logging.L
         Logger name.
     level : int, default=logging.INFO
         Logging level.
+    log_file : Path, optional
+        Path to log file. If provided, logs will be written to both console and file.
+        File will be overwritten (mode='w') to start fresh each run.
     
     Returns
     -------
@@ -27,22 +35,29 @@ def setup_logger(name: str = 'ensemble', level: int = logging.INFO) -> logging.L
     logger = logging.getLogger(name)
     logger.setLevel(level)
     
-    # Avoid duplicate handlers
-    if logger.handlers:
-        return logger
-    
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
+    # Clear any existing handlers to start fresh
+    logger.handlers.clear()
     
     # Format: [2025-12-10 10:30:45] INFO: Message
     formatter = logging.Formatter(
         '[%(asctime)s] %(levelname)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    console_handler.setFormatter(formatter)
     
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
+    
+    # File handler (if requested) - use 'w' mode to overwrite and start fresh
+    if log_file is not None:
+        log_file = Path(log_file)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_file, mode='w')
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
     
     return logger
 

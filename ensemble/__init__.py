@@ -14,5 +14,6 @@ __version__ = "2.0.0"
 __author__ = "Ensemble System Team"
 
 from ensemble.config import EnsembleConfig
+from ensemble.utils import compute_pipeline_hash
 
-__all__ = ['EnsembleConfig']
+__all__ = ['EnsembleConfig', 'compute_pipeline_hash']
