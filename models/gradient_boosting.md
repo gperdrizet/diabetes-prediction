@@ -19,10 +19,11 @@ Key features:
 
 ## Training information
 
-- **Training date**: 2025-12-11 15:04:15
-- **Training samples**: ~70,000 (10% of full dataset)
+- **Training date**: 2025-12-11 18:28:35
+- **Training samples**: 700,000
 - **Cross-validation**: 3-fold CV with ROC-AUC scoring
 - **Optimization method**: RandomizedSearchCV with 200 iterations
+- **Optimization samples**: ~70,000 samples (10%) for hyperparameter tuning
 
 ## Pipeline components
 
