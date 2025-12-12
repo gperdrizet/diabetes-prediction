@@ -151,6 +151,9 @@ def _train_worker(
     warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
     
     try:
+        # DEBUG: Print startup message
+        print(f'Worker {worker_id}: Starting {classifier_type} (iteration {iteration}, {len(X_train)} samples)')
+        
         # Update status to running
         start_time = datetime.now().isoformat()
         database.update_worker_status(
@@ -271,6 +274,8 @@ def train_batch_parallel(
     results : list of dict
         List of successful training results. Failed jobs return None.
     """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    
     if max_workers is None:
         max_workers = multiprocessing.cpu_count()
     
@@ -279,23 +284,30 @@ def train_batch_parallel(
     
     results = []
     
-    # Train each candidate (already prepared for parallel execution)
-    for job_args in batch_jobs:
-        try:
-            result = train_single_candidate(
-                job_args=job_args,
-                database=database,
-                logger=logger
-            )
-            results.append(result)
+    # Train candidates in parallel using ProcessPoolExecutor
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all jobs
+        future_to_job = {
+            executor.submit(train_single_candidate, job_args, database, logger): job_args
+            for job_args in batch_jobs
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_job):
+            job_args = future_to_job[future]
+            iteration = job_args[0]
             
-        except TimeoutError as e:
-            logger.warning(str(e))
-            results.append(None)
-        except Exception as e:
-            logger.error(
-                f"Iteration {job_args[0]}: Unexpected error - {e}"
-            )
-            results.append(None)
+            try:
+                result = future.result()
+                results.append(result)
+                
+            except TimeoutError as e:
+                logger.warning(str(e))
+                results.append(None)
+            except Exception as e:
+                logger.error(
+                    f"Iteration {iteration}: Unexpected error - {e}"
+                )
+                results.append(None)
     
     return results
