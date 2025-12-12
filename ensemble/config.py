@@ -79,7 +79,7 @@ class HillClimbingConfig:
     temperature_decay: float = 0.998
     adaptive_temp_increase: float = 1.2
     adaptive_temp_threshold: int = 25
-    
+
     def validate(self):
         """Validate hill climbing configuration."""
         assert self.max_iterations > 0, "max_iterations must be positive"
@@ -104,8 +104,8 @@ class ParallelConfig:
         timeout_minutes: Maximum training time per model before forced termination
         pre_sample_data: Whether to sample data once per batch (vs. per model)
     """
-    batch_size: int = 20
-    n_workers: int = 20
+    batch_size: int = 5
+    n_workers: int = 5
     timeout_minutes: int = 60
     pre_sample_data: bool = True
     
@@ -182,12 +182,12 @@ class FeatureEngineeringConfig:
         'noise_injector'
     ])
     transformer_hyperparams: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    
+
     def __post_init__(self):
         """Initialize default transformer hyperparameters if not provided."""
         if not self.transformer_hyperparams:
             self.transformer_hyperparams = get_default_transformer_hyperparams()
-    
+
     def validate(self):
         """Validate feature engineering configuration."""
         assert 0 <= self.skip_probability <= 1, "skip_probability must be in [0, 1]"
@@ -210,12 +210,12 @@ class DimensionalityReductionConfig:
         'pca', 'truncated_svd', 'fast_ica', 'factor_analysis'
     ])
     method_hyperparams: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    
+
     def __post_init__(self):
         """Initialize default method hyperparameters if not provided."""
         if not self.method_hyperparams:
             self.method_hyperparams = get_default_dim_reduction_hyperparams()
-    
+
     def validate(self):
         """Validate dimensionality reduction configuration."""
         assert 0 <= self.use_probability <= 1, "use_probability must be in [0, 1]"
@@ -245,24 +245,24 @@ class Stage1Config:
     feature_engineering: FeatureEngineeringConfig = field(default_factory=FeatureEngineeringConfig)
     dim_reduction: DimensionalityReductionConfig = field(default_factory=DimensionalityReductionConfig)
     initial_scaler_options: List[str] = field(default_factory=lambda: ['standard', 'minmax', 'robust'])
-    
+
     def __post_init__(self):
         """Initialize default classifier configs if not provided."""
         if not self.classifiers:
             self.classifiers = get_default_classifier_configs()
-    
+
     def validate(self):
         """Validate Stage 1 configuration."""
         # Check active classifiers exist
         for name in self.active_classifiers:
             assert name in self.classifiers, f"Active classifier '{name}' not in classifier configs"
             assert self.classifiers[name].enabled, f"Classifier '{name}' is not enabled"
-        
+
         # Validate sub-configs
         self.sampling.validate()
         self.feature_engineering.validate()
         self.dim_reduction.validate()
-        
+
         assert len(self.initial_scaler_options) > 0, "must have at least one scaler option"
 
 
@@ -287,7 +287,7 @@ class DNNArchitectureConfig:
     ])
     output_units: int = 1
     output_activation: str = 'sigmoid'
-    
+
     def validate(self):
         """Validate DNN architecture configuration."""
         assert len(self.hidden_layers) > 0, "must have at least one hidden layer"
@@ -295,7 +295,7 @@ class DNNArchitectureConfig:
             assert 'units' in layer, f"layer {i} missing 'units'"
             assert 'activation' in layer, f"layer {i} missing 'activation'"
             assert layer['units'] > 0, f"layer {i} units must be positive"
-        
+
         assert self.output_units > 0, "output_units must be positive"
 
 
@@ -327,7 +327,7 @@ class DNNTrainingConfig:
     mode: str = 'max'
     restore_best_weights: bool = True
     retrain_frequency: int = 20
-    
+
     def validate(self):
         """Validate DNN training configuration."""
         assert self.learning_rate > 0, "learning_rate must be positive"
@@ -356,7 +356,7 @@ class OptimizationConfig:
     optimize_every_n_batches: Optional[int] = 4
     max_epochs: int = 100
     tuner_directory: str = 'keras_tuner'
-    
+
     def validate(self):
         """Validate optimization configuration."""
         if self.enabled:
@@ -384,7 +384,7 @@ class PseudoLabelingConfig:
     max_fraction: float = 0.20
     target_class_ratio: Optional[float] = None
     execute_after_optimization: bool = True
-    
+
     def validate(self):
         """Validate pseudo-labeling configuration."""
         if self.enabled:
@@ -408,7 +408,7 @@ class Stage2Config:
     training: DNNTrainingConfig = field(default_factory=DNNTrainingConfig)
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
     pseudo_labeling: PseudoLabelingConfig = field(default_factory=PseudoLabelingConfig)
-    
+
     def validate(self):
         """Validate Stage 2 configuration."""
         self.architecture.validate()
@@ -437,7 +437,7 @@ class TrackingConfig:
     log_level: str = 'INFO'
     log_to_file: bool = True
     log_directory: str = 'logs'
-    
+
     def validate(self):
         """Validate tracking configuration."""
         assert self.log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR'], \
@@ -460,14 +460,14 @@ class PathsConfig:
     data_dir: Path = Path('../data')
     models_dir: Path = Path('../models')
     checkpoint_path: Optional[Path] = None
-    
+
     def __post_init__(self):
         """Convert strings to Path objects."""
         self.data_dir = Path(self.data_dir)
         self.models_dir = Path(self.models_dir)
         if self.checkpoint_path:
             self.checkpoint_path = Path(self.checkpoint_path)
-    
+
     def validate(self):
         """Validate paths configuration."""
         # No validation needed - directories will be created as needed
@@ -509,7 +509,7 @@ class EnsembleConfig:
     stage2: Stage2Config = field(default_factory=Stage2Config)
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
-    
+
     def validate(self):
         """Validate entire configuration hierarchy.
         
@@ -522,7 +522,7 @@ class EnsembleConfig:
         self.stage2.validate()
         self.tracking.validate()
         self.paths.validate()
-    
+
     def summary(self) -> str:
         """Generate a human-readable configuration summary.
         
