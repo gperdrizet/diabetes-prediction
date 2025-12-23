@@ -24,7 +24,7 @@ def prepare_training_batch(
     total_cpus: Optional[int] = None,
     timeout_minutes: int = 60,
     batch_num: int = 0,
-    row_sample_range: Tuple[float, float] = (0.10, 0.40)
+    row_sample_range: Tuple[float, float] = (0.05, 0.15)
 ) -> List[Tuple]:
     """Prepare a batch of training jobs for parallel execution.
     
@@ -56,7 +56,7 @@ def prepare_training_batch(
         Timeout in minutes for each model training.
     batch_num : int, default=0
         Batch number for tracking.
-    row_sample_range : tuple of float, default=(0.10, 0.40)
+    row_sample_range : tuple of float, default=(0.05, 0.15)
         Range for random row sampling.
     
     Returns
