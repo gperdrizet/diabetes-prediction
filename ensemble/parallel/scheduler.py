@@ -24,7 +24,8 @@ def prepare_training_batch(
     total_cpus: Optional[int] = None,
     timeout_minutes: int = 60,
     batch_num: int = 0,
-    row_sample_range: Tuple[float, float] = (0.05, 0.15)
+    row_sample_range: Tuple[float, float] = (0.05, 0.15),
+    active_classifiers: List[str] = None
 ) -> List[Tuple]:
     """Prepare a batch of training jobs for parallel execution.
     
@@ -58,6 +59,8 @@ def prepare_training_batch(
         Batch number for tracking.
     row_sample_range : tuple of float, default=(0.05, 0.15)
         Range for random row sampling.
+    active_classifiers : list of str
+        List of active classifier names to sample from (from config.stage1.active_classifiers).
     
     Returns
     -------
@@ -77,7 +80,8 @@ def prepare_training_batch(
         iteration=iteration,
         batch_size=batch_size,
         max_iterations=max_iterations,
-        random_state=random_state
+        random_state=random_state,
+        active_classifiers=active_classifiers
     )
     
     # Allocate CPU cores intelligently based on classifier types
@@ -131,7 +135,8 @@ def _sample_classifier_types(
     iteration: int,
     batch_size: int,
     max_iterations: int,
-    random_state: int
+    random_state: int,
+    active_classifiers: List[str]
 ) -> List[str]:
     """Sample classifier types for a batch.
     
@@ -145,18 +150,15 @@ def _sample_classifier_types(
         Maximum total iterations.
     random_state : int
         Base random state.
+    active_classifiers : list of str
+        List of active classifier names to sample from.
     
     Returns
     -------
     classifier_types : list of str
         List of classifier type names.
     """
-    # Active classifier pool
-    classifier_pool = [
-        'logistic', 'random_forest', 'linear_svc',
-        'sgd_classifier', 'extra_trees', 'adaboost',
-        'naive_bayes', 'lda', 'qda', 'ridge'
-    ]
+    classifier_pool = active_classifiers
     
     classifier_types = []
     for i in range(batch_size):

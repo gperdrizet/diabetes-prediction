@@ -37,7 +37,7 @@ Usage:
 """
 
 from dataclasses import dataclass, field
-from typing import Tuple, Dict, List, Optional, Callable, Any
+from typing import Tuple, Dict, List, Optional, Any #, Callable
 from pathlib import Path
 
 from sklearn.ensemble import (
@@ -73,6 +73,7 @@ class HillClimbingConfig:
         adaptive_temp_increase: Multiplier when plateau detected (encourages exploration)
         adaptive_temp_threshold: Iterations without improvement to trigger increase
     """
+
     max_iterations: int = 1000
     plateau_iterations: int = 100
     base_temperature: float = 0.0005
@@ -82,6 +83,7 @@ class HillClimbingConfig:
 
     def validate(self):
         """Validate hill climbing configuration."""
+    
         assert self.max_iterations > 0, "max_iterations must be positive"
         assert self.plateau_iterations > 0, "plateau_iterations must be positive"
         assert 0 < self.base_temperature < 1, "base_temperature must be in (0, 1)"
@@ -104,6 +106,7 @@ class ParallelConfig:
         timeout_minutes: Maximum training time per model before forced termination
         pre_sample_data: Whether to sample data once per batch (vs. per model)
     """
+
     batch_size: int = 5
     n_workers: int = 5
     timeout_minutes: int = 60
@@ -111,6 +114,7 @@ class ParallelConfig:
     
     def validate(self):
         """Validate parallel configuration."""
+
         assert self.batch_size > 0, "batch_size must be positive"
         assert self.n_workers > 0, "n_workers must be positive"
         assert self.timeout_minutes > 0, "timeout_minutes must be positive"
@@ -131,7 +135,7 @@ class SamplingConfig:
         row_sample_range: (min, max) fraction of rows to sample (stratified)
         column_sample_range: (min, max) fraction of columns to sample
     """
-    row_sample_range: Tuple[float, float] = (0.05, 0.15)
+    row_sample_range: Tuple[float, float] = (0.005, 0.01)
     column_sample_range: Tuple[float, float] = (0.30, 0.70)
     
     def validate(self):

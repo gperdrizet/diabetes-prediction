@@ -57,7 +57,8 @@ class TestBatchPreparation(unittest.TestCase):
             base_preprocessor=self.preprocessor,
             random_state=42,
             total_cpus=8,
-            timeout_minutes=5
+            timeout_minutes=5,
+            active_classifiers=['logistic', 'random_forest', 'ridge']
         )
         
         self.assertEqual(len(batch_jobs), 4)
@@ -88,7 +89,8 @@ class TestBatchPreparation(unittest.TestCase):
             y_val_s1=self.y_val,
             base_preprocessor=self.preprocessor,
             random_state=42,
-            row_sample_range=(0.2, 0.3)
+            row_sample_range=(0.2, 0.3),
+            active_classifiers=['logistic', 'random_forest', 'ridge']
         )
         
         for job in batch_jobs:
@@ -121,7 +123,8 @@ class TestCPUAllocation(unittest.TestCase):
             y_val_s1=self.y.iloc[:50],
             base_preprocessor=self.preprocessor,
             random_state=123,
-            total_cpus=16
+            total_cpus=16,
+            active_classifiers=['random_forest', 'extra_trees', 'knn', 'logistic', 'ridge', 'lasso']
         )
         
         total_cores = sum(job[7] for job in batch_jobs)
@@ -140,7 +143,8 @@ class TestCPUAllocation(unittest.TestCase):
             y_val_s1=self.y.iloc[:50],
             base_preprocessor=self.preprocessor,
             random_state=123,
-            total_cpus=4
+            total_cpus=4,
+            active_classifiers=['logistic', 'random_forest', 'ridge', 'lasso', 'lda', 'qda']
         )
         
         total_cores = sum(job[7] for job in batch_jobs)
@@ -170,7 +174,8 @@ class TestBatchInfo(unittest.TestCase):
             X_val_s1=self.X.iloc[:50],
             y_val_s1=self.y.iloc[:50],
             base_preprocessor=self.preprocessor,
-            random_state=42
+            random_state=42,
+            active_classifiers=['logistic', 'random_forest', 'ridge', 'lasso']
         )
         
         info = get_batch_info(batch_jobs)
@@ -225,7 +230,8 @@ class TestIntegration(unittest.TestCase):
             X_val_s1=self.X.iloc[:50],
             y_val_s1=self.y.iloc[:50],
             base_preprocessor=self.preprocessor,
-            random_state=42
+            random_state=42,
+            active_classifiers=['logistic', 'ridge']
         )
         
         # Get info
