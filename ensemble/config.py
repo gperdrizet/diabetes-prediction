@@ -109,7 +109,7 @@ class ParallelConfig:
 
     batch_size: int = 5
     n_workers: int = 5
-    timeout_minutes: int = 60
+    timeout_minutes: int = 5
     pre_sample_data: bool = True
     
     def validate(self):
@@ -240,11 +240,11 @@ class Stage1Config:
     """
     classifiers: Dict[str, ClassifierConfig] = field(default_factory=dict)
     active_classifiers: List[str] = field(default_factory=lambda: [
-        'logistic', 'qda', 'adaboost', 'lasso', 
-        'random_forest', 'linear_svc', 'sgd_classifier',
+        'logistic', 'qda', 'adaboost', 
+        'random_forest', 'linear_svc',
         'extra_trees', 'naive_bayes', 'lda', 'ridge',
         'gradient_boosting', 'mlp', 'knn'
-    ])
+    ]) #'sgd_classifier' , 'lasso'
     sampling: SamplingConfig = field(default_factory=SamplingConfig)
     feature_engineering: FeatureEngineeringConfig = field(default_factory=FeatureEngineeringConfig)
     dim_reduction: DimensionalityReductionConfig = field(default_factory=DimensionalityReductionConfig)

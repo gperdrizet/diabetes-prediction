@@ -31,7 +31,7 @@
 				"/usr/bin/python3.13"
 			],
 			
-			// Enable automatic port forwarding for Streamlit dashboard
+			// Disable automatic port forwarding and forward the dashboard port manually
 			"remote.autoForwardPorts": false,
 			"remote.restoreForwardedPorts": false
 		},
@@ -50,15 +50,6 @@
 	  }
 	},
 
-	// Forward port 8501 for Streamlit dashboard access
-	"forwardPorts": [8501],
-	"portsAttributes": {
-		"8501": {
-			"label": "Streamlit Dashboard",
-			"onAutoForward": "notify"
-		}
-	},
-
 	// Use 'onCreateCommand' to run commands once when the container is created
 	// This runs only on initial container creation, not on subsequent starts/attaches
 	// Steps:
@@ -74,5 +65,14 @@
 	"postCreateCommand": "",
 
 	// Use 'postAttachCommand' to run commands each time a user connects to the container
-	"postAttachCommand": ""
+	"postAttachCommand": "streamlit run dashboard/app.py &",
+
+	// Forward port 8502 for Streamlit dashboard access
+	"forwardPorts": [8502],
+	"portsAttributes": {
+		"8501": {
+			"label": "Streamlit dashboard",
+			"protocol": "http"
+		}
+	}
 }

@@ -63,59 +63,77 @@ def train_single_candidate(
     worker.join(timeout=timeout_seconds)
     
     if worker.is_alive():
-        # Timeout occurred - forcefully terminate
-        logger.warning(
-            f"Iteration {iteration} (worker {worker_id}) exceeded timeout "
-            f"({timeout_seconds}s). Forcefully terminating..."
-        )
-        
-        # Get parent process to kill all children
-        try:
-            parent = psutil.Process(worker.pid)
-            children = parent.children(recursive=True)
-            
-            # Kill all child processes first (e.g., sklearn loky workers)
-            for child in children:
-                try:
-                    child.kill()
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-            
-            # Kill parent worker process
-            parent.kill()
-            
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-        
-        # Wait for process cleanup
-        worker.join(timeout=5)
-        
-        # Update database status
+        # Check database status FIRST before killing
         batch_num = job_args[9]
-        database.update_worker_status(
-            worker_id=worker_id,
-            iteration_num=iteration,
-            batch_num=batch_num,
-            status='timeout'
-        )
+        current_status = database.get_worker_status(worker_id)
         
-        raise TimeoutError(
-            f"Training for iteration {iteration} exceeded timeout "
-            f"({timeout_seconds}s)"
-        )
+        if current_status == 'completed':
+            # Worker finished successfully but process cleanup is slow
+            # Give it a bit more time to finish cleanup and put result in queue
+            logger.info(
+                f"Iteration {iteration} (worker {worker_id}) completed successfully, waiting for cleanup..."
+            )
+            worker.join(timeout=10)  # Give extra time for cleanup
+            # Fall through to result retrieval
+        else:
+            # Genuine timeout - forcefully terminate
+            logger.warning(
+                f"Iteration {iteration} (worker {worker_id}) exceeded timeout "
+                f"({timeout_seconds}s). Forcefully terminating..."
+            )
+            
+            # Get parent process to kill all children
+            try:
+                parent = psutil.Process(worker.pid)
+                children = parent.children(recursive=True)
+                
+                # Kill all child processes first (e.g., sklearn loky workers)
+                for child in children:
+                    try:
+                        child.kill()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                
+                # Kill parent worker process
+                parent.kill()
+                
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            
+            # Wait for process cleanup
+            worker.join(timeout=5)
+            
+            # Update status to timeout
+            database.update_worker_status(
+                worker_id=worker_id,
+                iteration_num=iteration,
+                batch_num=batch_num,
+                status='timeout'
+            )
+            
+            raise TimeoutError(
+                f"Training for iteration {iteration} exceeded timeout "
+                f"({timeout_seconds}s)"
+            )
+    
+    # Worker finished - check if it completed successfully or had an error
+    # by attempting to get result from queue
     
     # Get result from queue (blocking with timeout)
     try:
-        status, payload = result_queue.get(timeout=5)
+        status, payload = result_queue.get(timeout=10)
         
         if status == 'success':
             return payload
         elif status == 'error':
             logger.error(f"Iteration {iteration}: Training failed - {payload}")
             return None
-    except:
-        # Queue was empty or timeout - process ended without result
-        logger.error(f"Iteration {iteration}: Worker process ended without result")
+    except Exception as e:
+        # Queue was empty or timeout - process ended without putting result
+        # This shouldn't happen if worker completed successfully
+        logger.error(
+            f"Iteration {iteration}: Worker finished but no result in queue - {type(e).__name__}"
+        )
         return None
 
 
@@ -231,6 +249,12 @@ def _train_worker(
         # Put result in queue
         result_queue.put(('success', result))
         
+        # CRITICAL: Ensure queue is flushed before worker exits
+        # Without this, the queue's background thread may not finish writing
+        # and the parent process will get an empty queue
+        result_queue.close()
+        result_queue.join_thread()
+        
     except Exception as e:
         # Update status to error
         error_time = datetime.now().isoformat()
@@ -242,9 +266,11 @@ def _train_worker(
             end_time=error_time
         )
         
-        # Put error in queue
+        # Put error in queue and ensure it's flushed
         error_msg = f"{type(e).__name__}: {str(e)}"
         result_queue.put(('error', error_msg))
+        result_queue.close()
+        result_queue.join_thread()
 
 
 def train_batch_parallel(

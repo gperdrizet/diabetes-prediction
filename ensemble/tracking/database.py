@@ -297,6 +297,28 @@ class EnsembleDatabase:
         finally:
             conn.close()
     
+    def get_worker_status(self, worker_id: int) -> Optional[str]:
+        """Get current status of a worker.
+        
+        Parameters
+        ----------
+        worker_id : int
+            Worker identifier.
+        
+        Returns
+        -------
+        status : str or None
+            Worker status ('running', 'completed', 'timeout', 'error') or None if not found.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=self.timeout)
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT status FROM batch_status WHERE worker_id = ?', (worker_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+    
     def update_worker_status(
         self,
         worker_id: int,
