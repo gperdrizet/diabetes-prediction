@@ -49,25 +49,27 @@ def train_single_candidate(
     iteration = job_args[0]
     worker_id = job_args[8]
     timeout_seconds = job_args[10]
-    
+
     # Create queue for result passing
     result_queue = multiprocessing.Queue()
-    
+
     # Start worker process
     worker = multiprocessing.Process(
         target=_train_worker,
         args=(job_args, database, logger, result_queue)
     )
-    
+
     worker.start()
     worker.join(timeout=timeout_seconds)
-    
+
     if worker.is_alive():
         # Check database status FIRST before killing
+
         batch_num = job_args[9]
         current_status = database.get_worker_status(worker_id)
-        
+
         if current_status == 'completed':
+
             # Worker finished successfully but process cleanup is slow
             # Give it a bit more time to finish cleanup and put result in queue
             logger.info(
@@ -75,34 +77,35 @@ def train_single_candidate(
             )
             worker.join(timeout=10)  # Give extra time for cleanup
             # Fall through to result retrieval
+
         else:
             # Genuine timeout - forcefully terminate
             logger.warning(
                 f"Iteration {iteration} (worker {worker_id}) exceeded timeout "
                 f"({timeout_seconds}s). Forcefully terminating..."
             )
-            
+
             # Get parent process to kill all children
             try:
                 parent = psutil.Process(worker.pid)
                 children = parent.children(recursive=True)
-                
+
                 # Kill all child processes first (e.g., sklearn loky workers)
                 for child in children:
                     try:
                         child.kill()
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
-                
+
                 # Kill parent worker process
                 parent.kill()
-                
+
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
-            
+
             # Wait for process cleanup
             worker.join(timeout=5)
-            
+
             # Update status to timeout
             database.update_worker_status(
                 worker_id=worker_id,
@@ -110,30 +113,25 @@ def train_single_candidate(
                 batch_num=batch_num,
                 status='timeout'
             )
-            
-            raise TimeoutError(
-                f"Training for iteration {iteration} exceeded timeout "
-                f"({timeout_seconds}s)"
-            )
-    
+
     # Worker finished - check if it completed successfully or had an error
     # by attempting to get result from queue
-    
+
     # Get result from queue (blocking with timeout)
     try:
         status, payload = result_queue.get(timeout=10)
-        
+
         if status == 'success':
             return payload
+
         elif status == 'error':
             logger.error(f"Iteration {iteration}: Training failed - {payload}")
             return None
-    except Exception as e:
+
+    except Exception:
         # Queue was empty or timeout - process ended without putting result
         # This shouldn't happen if worker completed successfully
-        logger.error(
-            f"Iteration {iteration}: Worker finished but no result in queue - {type(e).__name__}"
-        )
+
         return None
 
 
@@ -173,9 +171,6 @@ def _train_worker(
     warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
     
     try:
-        # DEBUG: Print startup message
-        print(f'Worker {worker_id}: Starting {classifier_type} (iteration {iteration}, {len(X_train)} samples)')
-        
         # Update status to running
         start_time = datetime.now().isoformat()
         database.update_worker_status(
@@ -298,39 +293,41 @@ def train_batch_parallel(
         List of successful training results. Failed jobs return None.
     """
     from concurrent.futures import ProcessPoolExecutor, as_completed
-    
+
     if max_workers is None:
         max_workers = multiprocessing.cpu_count()
-    
+
     # Clear batch status before starting
     database.clear_batch_status()
-    
+
     results = []
-    
+
     # Train candidates in parallel using ProcessPoolExecutor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
+
         # Submit all jobs
         future_to_job = {
             executor.submit(train_single_candidate, job_args, database, logger): job_args
             for job_args in batch_jobs
         }
-        
+
         # Collect results as they complete
         for future in as_completed(future_to_job):
             job_args = future_to_job[future]
             iteration = job_args[0]
-            
+
             try:
                 result = future.result()
                 results.append(result)
-                
+
             except TimeoutError as e:
                 logger.warning(str(e))
                 results.append(None)
+
             except Exception as e:
                 logger.error(
                     f"Iteration {iteration}: Unexpected error - {e}"
                 )
                 results.append(None)
-    
+
     return results

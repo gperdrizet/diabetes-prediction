@@ -34,9 +34,6 @@ class EnsembleDatabase:
         """Delete the database file if it exists to start fresh."""
         if self.db_path.exists():
             self.db_path.unlink()
-            print(f"Deleted existing database: {self.db_path}")
-        else:
-            print(f"No existing database found at: {self.db_path}")
     
     def initialize(self) -> None:
         """Initialize database with required tables and indexes.

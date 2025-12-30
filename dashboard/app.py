@@ -64,18 +64,28 @@ def get_stage2_data():
     except Exception as e:
         return pd.DataFrame()
 
-@st.cache_data(ttl=5)  # Refresh every 5 seconds for live batch tracking
 def get_batch_status():
     """Retrieve current batch status"""
     try:
         conn = sqlite3.connect(DB_PATH)
         df = pd.read_sql_query("SELECT * FROM batch_status ORDER BY worker_id", conn)
         conn.close()
+        
+        # Add computed runtime for running workers
+        if not df.empty and 'start_time' in df.columns:
+            current_time = datetime.now()
+            for idx, row in df.iterrows():
+                if row['status'] == 'running' and pd.notna(row['start_time']):
+                    try:
+                        start_dt = datetime.fromisoformat(row['start_time'])
+                        df.at[idx, 'runtime_sec'] = (current_time - start_dt).total_seconds()
+                    except (ValueError, TypeError):
+                        pass
+        
         return df
     except Exception as e:
         return pd.DataFrame()
 
-@st.cache_data(ttl=5)  # Refresh every 5 seconds for live batch tracking
 def get_batch_summary():
     """Get batch summary statistics"""
     try:
@@ -323,11 +333,10 @@ if page != st.query_params.get('page'):
     st.query_params['page'] = page
 
 # Conditional auto-refresh based on page
-# Batch status page: 5 seconds (live worker tracking)
+# Batch status page: 60 seconds (live worker tracking)
 # Other pages: 60 seconds (less frequent updates)
-# Use limit parameter to reduce excessive refreshing
 if page == "Current batch status":
-    refresh_count = st_autorefresh(interval=5000, limit=None, key="refresh_batch_status")
+    refresh_count = st_autorefresh(interval=60000, limit=None, key="refresh_batch_status")
 else:
     refresh_count = st_autorefresh(interval=60000, limit=None, key="refresh_other_pages")
 
@@ -340,7 +349,7 @@ st.session_state.auto_refresh_count = refresh_count
 if page == "Current batch status":
     st.subheader("Current batch status")
     
-    # Get batch status data
+    # Get batch status data (queries database directly, no cache)
     batch_df = get_batch_status()
     batch_summary = get_batch_summary()
     
@@ -413,7 +422,9 @@ if page == "Current batch status":
         
         # Worker status table
         if not batch_df.empty:
-            st.markdown("### Worker details")
+            # Get last update time
+            last_update_time = datetime.now().strftime('%I:%M %p')
+            st.markdown(f"### Worker details (Last update: {last_update_time})")
             
             # Calculate runtime for display
             display_df = batch_df.copy()
@@ -449,22 +460,15 @@ if page == "Current batch status":
             }
             display_df['status_icon'] = display_df['status'].map(status_icons)
             
-            # Select and rename columns for display
+            # Select and rename columns for display (removed last_update column)
             display_columns = {
                 'worker_id': 'Worker',
                 'iteration_num': 'Iteration',
                 'status_icon': '⚡',
                 'status': 'Status',
                 'classifier_type': 'Classifier',
-                'runtime_display': 'Runtime',
-                'last_update': 'Last Update'
+                'runtime_display': 'Runtime'
             }
-            
-            # Format last update times (12-hour clock)
-            display_df['last_update_display'] = display_df['last_update'].apply(
-                lambda x: datetime.fromisoformat(x).strftime('%I:%M:%S %p') if pd.notna(x) else 'N/A'
-            )
-            display_df['last_update'] = display_df['last_update_display']
             
             table_df = display_df[list(display_columns.keys())].rename(columns=display_columns)
             
@@ -484,7 +488,7 @@ if page == "Current batch status":
             st.dataframe(styled_table, width='stretch', hide_index=True)
             
             # Auto-refresh message
-            st.caption("🔄 This page auto-refreshes every 5 seconds to show live worker status")
+            st.caption("🔄 This page auto-refreshes every 60 seconds to show live worker status")
         else:
             st.warning("No worker data available for current batch")
 

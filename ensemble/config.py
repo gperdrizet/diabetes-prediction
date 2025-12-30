@@ -83,7 +83,7 @@ class HillClimbingConfig:
 
     def validate(self):
         """Validate hill climbing configuration."""
-    
+
         assert self.max_iterations > 0, "max_iterations must be positive"
         assert self.plateau_iterations > 0, "plateau_iterations must be positive"
         assert 0 < self.base_temperature < 1, "base_temperature must be in (0, 1)"
@@ -111,7 +111,7 @@ class ParallelConfig:
     n_workers: int = 5
     timeout_minutes: int = 5
     pre_sample_data: bool = True
-    
+
     def validate(self):
         """Validate parallel configuration."""
 
@@ -137,12 +137,12 @@ class SamplingConfig:
     """
     row_sample_range: Tuple[float, float] = (0.005, 0.01)
     column_sample_range: Tuple[float, float] = (0.30, 0.70)
-    
+
     def validate(self):
         """Validate sampling configuration."""
         row_min, row_max = self.row_sample_range
         col_min, col_max = self.column_sample_range
-        
+
         assert 0 < row_min <= row_max <= 1, "row_sample_range must be in (0, 1] with min <= max"
         assert 0 < col_min <= col_max <= 1, "column_sample_range must be in (0, 1] with min <= max"
 
@@ -330,7 +330,7 @@ class DNNTrainingConfig:
     monitor: str = 'val_auc'
     mode: str = 'max'
     restore_best_weights: bool = True
-    retrain_frequency: int = 20
+    retrain_frequency: int = 5
 
     def validate(self):
         """Validate DNN training configuration."""
@@ -357,7 +357,7 @@ class OptimizationConfig:
     """
     enabled: bool = True
     trials_per_optimization: int = 10
-    optimize_every_n_batches: Optional[int] = 4
+    optimize_every_n_batches: Optional[int] = 1
     max_epochs: int = 100
     tuner_directory: str = 'keras_tuner'
 
