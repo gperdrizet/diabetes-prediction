@@ -526,16 +526,20 @@ elif page == "Performance":
             hovertemplate='Iter %{x}<br>Stage 1 Mean: %{y:.4f}<extra></extra>'
         ))
         
-        # Add Stage 2 line (ensemble performance)
-        fig_combined.add_trace(go.Scatter(
-            x=accepted_df['iteration_num'],
-            y=accepted_df['stage2_val_auc'],
-            mode='lines+markers',
-            line=dict(color='rgba(0, 153, 136, 0.6)', width=3, dash='dash', shape='hv'),
-            marker=dict(size=8, color=COLORS['tertiary']),
-            name='Stage 2 (ensemble)',
-            hovertemplate='Iter %{x}<br>Stage 2 AUC: %{y:.4f}<extra></extra>'
-        ))
+        # Add Stage 2 line (ensemble performance) - only for retraining events
+        # Filter for iterations where Stage 2 was actually retrained (non-null stage2_memory_mb)
+        stage2_retrain_df = accepted_df[accepted_df['stage2_memory_mb'].notna()]
+        
+        if not stage2_retrain_df.empty:
+            fig_combined.add_trace(go.Scatter(
+                x=stage2_retrain_df['iteration_num'],
+                y=stage2_retrain_df['stage2_val_auc'],
+                mode='lines+markers',
+                line=dict(color='rgba(0, 153, 136, 0.6)', width=3, shape='hv'),
+                marker=dict(size=8, color=COLORS['tertiary']),
+                name='Stage 2 (ensemble after retraining)',
+                hovertemplate='Iter %{x}<br>Stage 2 AUC: %{y:.4f}<extra></extra>'
+            ))
         
         # Add batch boundaries (Stage 2 DNN retraining events)
         # Identify iterations where Stage 2 was retrained (non-null stage2_memory_mb)
