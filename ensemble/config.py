@@ -240,11 +240,11 @@ class Stage1Config:
     """
     classifiers: Dict[str, ClassifierConfig] = field(default_factory=dict)
     active_classifiers: List[str] = field(default_factory=lambda: [
-        'logistic', 'qda', 'adaboost', 
+        'logistic', 'adaboost', 
         'random_forest', 'linear_svc',
-        'extra_trees', 'naive_bayes', 'lda', 'ridge',
+        'extra_trees', 'naive_bayes', 'lda',
         'gradient_boosting', 'mlp', 'knn'
-    ]) #'sgd_classifier' , 'lasso'
+    ]) #'sgd_classifier' , 'lasso'. 'qda', 'ridge'
     sampling: SamplingConfig = field(default_factory=SamplingConfig)
     feature_engineering: FeatureEngineeringConfig = field(default_factory=FeatureEngineeringConfig)
     dim_reduction: DimensionalityReductionConfig = field(default_factory=DimensionalityReductionConfig)
