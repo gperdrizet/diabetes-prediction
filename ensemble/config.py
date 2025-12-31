@@ -107,8 +107,8 @@ class ParallelConfig:
         pre_sample_data: Whether to sample data once per batch (vs. per model)
     """
 
-    batch_size: int = 5
-    n_workers: int = 5
+    batch_size: int = 3
+    n_workers: int = 3
     timeout_minutes: int = 5
     pre_sample_data: bool = True
 
@@ -177,7 +177,7 @@ class FeatureEngineeringConfig:
         available_transformers: List of transformer names to choose from
         transformer_hyperparams: Dict mapping transformer names to their hyperparameter generators
     """
-    skip_probability: float = 0.30
+    skip_probability: float = 0.10
     n_transformers_range: Tuple[int, int] = (1, 3)
     available_transformers: List[str] = field(default_factory=lambda: [
         'ratio', 'product', 'difference', 'sum', 'reciprocal',
@@ -356,9 +356,9 @@ class OptimizationConfig:
         tuner_directory: Base directory for Keras Tuner files
     """
     enabled: bool = True
-    trials_per_optimization: int = 10
+    trials_per_optimization: int = 3
     optimize_every_n_batches: Optional[int] = 1
-    max_epochs: int = 100
+    max_epochs: int = 10
     tuner_directory: str = 'keras_tuner'
 
     def validate(self):

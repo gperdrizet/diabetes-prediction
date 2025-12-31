@@ -114,6 +114,20 @@ class EnsembleDatabase:
             )
         ''')
         
+        # Create batch_memory_log table
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS batch_memory_log (
+                batch_num INTEGER PRIMARY KEY,
+                max_delta_mb REAL,
+                mean_delta_mb REAL,
+                n_samples INTEGER,
+                duration_sec REAL,
+                leak_detected INTEGER,
+                leak_severity_mb REAL,
+                timestamp TEXT
+            )
+        ''')
+        
         # Create indexes
         conn.execute('CREATE INDEX IF NOT EXISTS idx_iteration_num ON ensemble_log(iteration_num)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ensemble_id ON ensemble_log(ensemble_id)')
@@ -200,6 +214,36 @@ class EnsembleDatabase:
                 epoch_data['val_loss'],
                 epoch_data['train_auc'],
                 epoch_data['val_auc']
+            ))
+            conn.commit()
+        finally:
+            conn.close()
+    
+    def insert_batch_memory(self, batch_num: int, stats_dict: Dict) -> None:
+        """Insert batch memory statistics.
+        
+        Parameters
+        ----------
+        batch_num : int
+            Batch number identifier.
+        stats_dict : dict
+            Dictionary containing memory stats from MemoryMonitor.get_stats():
+            max_delta_mb, mean_delta_mb, n_samples, duration_sec,
+            leak_detected, leak_severity_mb.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=self.timeout)
+        try:
+            conn.execute('''
+                INSERT OR REPLACE INTO batch_memory_log VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                batch_num,
+                stats_dict.get('max_delta_mb', 0.0),
+                stats_dict.get('mean_delta_mb', 0.0),
+                stats_dict.get('n_samples', 0),
+                stats_dict.get('duration_sec', 0.0),
+                1 if stats_dict.get('leak_detected', False) else 0,
+                stats_dict.get('leak_severity_mb', 0.0),
+                datetime.now().isoformat()
             ))
             conn.commit()
         finally:

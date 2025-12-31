@@ -9,8 +9,10 @@ import os
 import signal
 import psutil
 import warnings
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 from datetime import datetime
+
+from ensemble.parallel.memory_monitor import MemoryMonitor
 
 
 def train_single_candidate(
@@ -199,6 +201,14 @@ def _train_worker(
             n_input_features=X_train.shape[1]
         )
         
+        # Log pipeline configuration
+        transformers_used = metadata.get('transformers_used', [])
+        if transformers_used:
+            transformer_names = ', '.join(transformers_used)
+            logger.info(f'Iteration {iteration} (worker {worker_id}): {classifier_type} with transformers: {transformer_names}')
+        else:
+            logger.info(f'Iteration {iteration} (worker {worker_id}): {classifier_type} with no feature transformers')
+        
         # Train pipeline
         candidate.fit(X_train, y_train)
         
@@ -210,6 +220,13 @@ def _train_worker(
         mem_after = process.memory_info().rss / 1024 / 1024  # MB
         mem_delta = mem_after - mem_before
         
+        # Calculate training time
+        from dateutil import parser as date_parser
+        end_time = datetime.now().isoformat()
+        start_dt = date_parser.parse(start_time)
+        end_dt = date_parser.parse(end_time)
+        runtime_sec = (end_dt - start_dt).total_seconds()
+        
         # Prepare result
         result = {
             'iteration': iteration,
@@ -220,16 +237,11 @@ def _train_worker(
             'random_state': random_state,
             'n_jobs': n_jobs,
             'memory_mb': mem_delta,
+            'training_time': runtime_sec,
             'worker_id': worker_id,
-            'batch_num': batch_num
+            'batch_num': batch_num,
+            'metadata': metadata
         }
-        
-        # Update status to completed
-        from dateutil import parser as date_parser
-        end_time = datetime.now().isoformat()
-        start_dt = date_parser.parse(start_time)
-        end_dt = date_parser.parse(end_time)
-        runtime_sec = (end_dt - start_dt).total_seconds()
         
         database.update_worker_status(
             worker_id=worker_id,
@@ -272,8 +284,9 @@ def train_batch_parallel(
     batch_jobs: list,
     database,
     logger,
-    max_workers: Optional[int] = None
-) -> list:
+    max_workers: Optional[int] = None,
+    memory_monitor_interval: float = 0.5
+) -> Tuple[list, Optional[dict]]:
     """Train a batch of candidates in parallel using multiprocessing.
     
     Parameters
@@ -286,11 +299,15 @@ def train_batch_parallel(
         Logger for status messages.
     max_workers : int or None, default=None
         Maximum number of parallel workers. If None, uses number of CPUs.
+    memory_monitor_interval : float, default=0.5
+        Memory sampling interval in seconds for batch-level monitoring.
     
     Returns
     -------
     results : list of dict
         List of successful training results. Failed jobs return None.
+    mem_stats : dict or None
+        Memory statistics from batch execution, or None if monitoring failed.
     """
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -299,35 +316,49 @@ def train_batch_parallel(
 
     # Clear batch status before starting
     database.clear_batch_status()
+    
+    # Capture memory baseline before batch execution
+    baseline_mb = psutil.virtual_memory().available / (1024**2)
+    monitor = MemoryMonitor(baseline_mb, interval=memory_monitor_interval)
+    monitor.start()
 
     results = []
 
-    # Train candidates in parallel using ProcessPoolExecutor
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    try:
+        # Train candidates in parallel using ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
 
-        # Submit all jobs
-        future_to_job = {
-            executor.submit(train_single_candidate, job_args, database, logger): job_args
-            for job_args in batch_jobs
-        }
+            # Submit all jobs
+            future_to_job = {
+                executor.submit(train_single_candidate, job_args, database, logger): job_args
+                for job_args in batch_jobs
+            }
 
-        # Collect results as they complete
-        for future in as_completed(future_to_job):
-            job_args = future_to_job[future]
-            iteration = job_args[0]
+            # Collect results as they complete
+            for future in as_completed(future_to_job):
+                job_args = future_to_job[future]
+                iteration = job_args[0]
 
-            try:
-                result = future.result()
-                results.append(result)
+                try:
+                    result = future.result()
+                    results.append(result)
 
-            except TimeoutError as e:
-                logger.warning(str(e))
-                results.append(None)
+                except TimeoutError as e:
+                    logger.warning(str(e))
+                    results.append(None)
 
-            except Exception as e:
-                logger.error(
-                    f"Iteration {iteration}: Unexpected error - {e}"
-                )
-                results.append(None)
+                except Exception as e:
+                    logger.error(
+                        f"Iteration {iteration}: Unexpected error - {e}"
+                    )
+                    results.append(None)
+    finally:
+        # Stop memory monitoring and collect statistics
+        try:
+            monitor.stop()
+            mem_stats = monitor.get_stats()
+        except Exception as e:
+            logger.warning(f'Memory monitoring failed: {e}')
+            mem_stats = None
 
-    return results
+    return results, mem_stats

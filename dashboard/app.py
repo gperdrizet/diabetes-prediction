@@ -32,7 +32,7 @@ DB_PATH = Path(__file__).parent.parent / 'data' / 'ensemble_training.db'
 
 # Page configuration
 st.set_page_config(
-    page_title="Ensemble training monitor",
+    page_title="Ensemble hill climbing monitor",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -189,7 +189,7 @@ def check_database_exists():
     return Path(DB_PATH).exists()
 
 # Main dashboard
-st.title("Ensemble hill climbing training monitor")
+st.title("Ensemble hill climbing monitor")
 st.markdown("---")
 
 # Check database existence
@@ -308,35 +308,29 @@ st.markdown("---")
 # ====================
 st.sidebar.title("Navigation")
 
-# Use query parameters to persist page selection across refreshes
-if 'page' not in st.query_params:
-    st.query_params['page'] = "Current batch status"
-
-# Page selection with query params
+# Page selection with session state (more reliable than query params with auto-refresh)
 page_options = ["Current batch status", "Performance", "Diversity", "Stage 2 DNN", "Memory usage", "Timing"]
-current_page = st.query_params.get('page', 'Current batch status')
 
-# If stored page is not in current options (e.g., old "Batch Status"), default to first option
-if current_page not in page_options:
-    current_page = page_options[0]
-    st.query_params['page'] = current_page
+# Initialize page in session state
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "Current batch status"
 
 page = st.sidebar.radio(
     "Select page",
     page_options,
     label_visibility="collapsed",
-    index=page_options.index(current_page)
+    key='page_selector'
 )
 
-# Update query params when page changes
-if page != st.query_params.get('page'):
-    st.query_params['page'] = page
+# Update session state when page changes
+if page != st.session_state.current_page:
+    st.session_state.current_page = page
 
 # Conditional auto-refresh based on page
-# Batch status page: 60 seconds (live worker tracking)
+# Batch status page: 10 seconds (live worker tracking)
 # Other pages: 60 seconds (less frequent updates)
 if page == "Current batch status":
-    refresh_count = st_autorefresh(interval=60000, limit=None, key="refresh_batch_status")
+    refresh_count = st_autorefresh(interval=10000, limit=None, key="refresh_batch_status")
 else:
     refresh_count = st_autorefresh(interval=60000, limit=None, key="refresh_other_pages")
 
@@ -429,20 +423,10 @@ if page == "Current batch status":
             # Calculate runtime for display
             display_df = batch_df.copy()
             
-            # Parse timestamps and calculate runtime
+            # Format runtime using runtime_sec column (already calculated in get_batch_status)
             for idx, row in display_df.iterrows():
-                if pd.notna(row['start_time']):
-                    start = datetime.fromisoformat(row['start_time'])
-                    
-                    if pd.notna(row['end_time']):
-                        end = datetime.fromisoformat(row['end_time'])
-                        runtime = (end - start).total_seconds()
-                    elif row['status'] == 'running':
-                        # Calculate current runtime for running workers
-                        runtime = (datetime.now() - start).total_seconds()
-                    else:
-                        runtime = row['runtime_sec'] if pd.notna(row['runtime_sec']) else 0
-                    
+                runtime = row.get('runtime_sec', 0)
+                if pd.notna(runtime) and runtime > 0:
                     # Format runtime: seconds if < 60, minutes if >= 60
                     if runtime < 60:
                         display_df.at[idx, 'runtime_display'] = f"{int(runtime)}s"
@@ -914,7 +898,7 @@ elif page == "Stage 2 DNN":
                 
                 st.plotly_chart(fig_growth, width="stretch")
     else:
-        st.info("No Stage 2 training data yet. DNN training starts at 10 accepted models.")
+        st.info("No Stage 2 training data yet. DNN training starts after first 5 accepted models.")
 
 # ====================
 # MEMORY USAGE PAGE
@@ -1032,6 +1016,78 @@ elif page == "Memory usage":
                     st.metric("Avg Stage 2 Memory", f"{stage2_mem_df['stage2_memory_mb'].mean():.1f} MB")
                 with col3:
                     st.metric("Max Stage 2 Memory", f"{stage2_mem_df['stage2_memory_mb'].max():.1f} MB")
+        
+        # Batch Memory Tracking (from batch_memory_log table)
+        st.markdown("---")
+        st.subheader("Batch Memory Tracking")
+        
+        # Query batch memory data
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            batch_mem_df = pd.read_sql_query('''
+                SELECT batch_num, max_delta_mb, mean_delta_mb, 
+                       leak_detected, leak_severity_mb, n_samples, duration_sec
+                FROM batch_memory_log 
+                ORDER BY batch_num
+            ''', conn)
+            conn.close()
+        except Exception as e:
+            batch_mem_df = pd.DataFrame()
+        
+        if not batch_mem_df.empty:
+            # Line chart showing memory trends
+            fig_batch_mem = go.Figure()
+            
+            fig_batch_mem.add_trace(go.Scatter(
+                x=batch_mem_df['batch_num'],
+                y=batch_mem_df['max_delta_mb'],
+                mode='lines+markers',
+                name='Peak Memory (MB)',
+                line=dict(color=COLORS['secondary'], width=2),
+                marker=dict(size=6)
+            ))
+            
+            fig_batch_mem.add_trace(go.Scatter(
+                x=batch_mem_df['batch_num'],
+                y=batch_mem_df['mean_delta_mb'],
+                mode='lines+markers',
+                name='Average Memory (MB)',
+                line=dict(color=COLORS['primary'], width=2),
+                marker=dict(size=6)
+            ))
+            
+            fig_batch_mem.update_layout(
+                title="Batch Memory Usage Over Time",
+                xaxis_title="Batch Number",
+                yaxis_title="Memory Delta (MB)",
+                showlegend=True,
+                height=400
+            )
+            
+            st.plotly_chart(fig_batch_mem, width="stretch")
+            
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric('Peak Batch Memory', f"{batch_mem_df['max_delta_mb'].max():.1f} MB")
+            with col2:
+                st.metric('Average Memory', f"{batch_mem_df['mean_delta_mb'].mean():.1f} MB")
+            with col3:
+                # Memory trend analysis
+                if len(batch_mem_df) > 5:
+                    coeffs = np.polyfit(batch_mem_df['batch_num'], batch_mem_df['mean_delta_mb'], 1)
+                    trend = 'Increasing ⚠️' if coeffs[0] > 5 else 'Stable ✓' if coeffs[0] > -5 else 'Decreasing ✓'
+                else:
+                    trend = 'N/A (need more data)'
+                st.metric('Memory Trend', trend)
+            
+            # Leak alerts
+            leaks = batch_mem_df[batch_mem_df['leak_detected'] == 1]
+            if not leaks.empty:
+                st.warning(f'⚠️ Memory leaks detected in {len(leaks)} batches')
+                st.dataframe(leaks[['batch_num', 'leak_severity_mb', 'max_delta_mb']])
+        else:
+            st.info("No batch memory data available yet. Run training with updated code to collect metrics.")
     else:
         st.info("Memory tracking data not available. This feature requires running with the updated training code.")
 
