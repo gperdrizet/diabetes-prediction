@@ -537,14 +537,14 @@ elif page == "Performance":
             hovertemplate='Iter %{x}<br>Stage 2 AUC: %{y:.4f}<extra></extra>'
         ))
         
-        # Add batch boundaries (every 10 accepted models) using num_models column
-        # Filter to rows where num_models is a multiple of 10
-        batch_rows = accepted_df[accepted_df['num_models'] % 10 == 0]
-        batch_iterations = batch_rows['iteration_num'].values
+        # Add batch boundaries (Stage 2 DNN retraining events)
+        # Identify iterations where Stage 2 was retrained (non-null stage2_memory_mb)
+        retrain_rows = accepted_df[accepted_df['stage2_memory_mb'].notna()]
+        retrain_iterations = retrain_rows['iteration_num'].values
         
-        for batch_iter in batch_iterations:
+        for retrain_iter in retrain_iterations:
             fig_combined.add_vline(
-                x=batch_iter, 
+                x=retrain_iter, 
                 line_dash="dash", 
                 line_color="gray",
                 opacity=0.3,
@@ -599,14 +599,13 @@ elif page == "Performance":
         
         # Ensemble size over time
         accepted_df = ensemble_df[ensemble_df['accepted'] == 1].copy()
-        accepted_df['cumulative_ensemble_size'] = range(1, len(accepted_df) + 1)
         
         fig_size = px.line(
             accepted_df,
             x='iteration_num',
-            y='cumulative_ensemble_size',
+            y='num_models',
             title="Ensemble size growth",
-            labels={'iteration_num': 'Iteration number', 'cumulative_ensemble_size': 'Ensemble size'}
+            labels={'iteration_num': 'Iteration number', 'num_models': 'Ensemble size'}
         )
         fig_size.update_traces(
             mode='lines+markers',
@@ -707,6 +706,10 @@ elif page == "Diversity":
             # Parse comma-separated transformers
             all_transformers = []
             for trans_str in accepted_df['transformers_used'].dropna():
+                # Skip empty strings
+                if not trans_str or not trans_str.strip():
+                    all_transformers.append('None')
+                    continue
                 # Strip whitespace from each transformer name
                 transformers = [t.strip() for t in trans_str.split(',') if t.strip()]
                 # If no transformers after filtering, it means empty/none
@@ -864,35 +867,37 @@ elif page == "Stage 2 DNN":
             with col4:
                 st.metric("Final val AUC", f"{final_epoch['val_auc']:.4f}")
             
-            # Show transfer learning info
+            # Show ensemble size at retraining
             try:
-                batch_num = int(selected_id.split('_')[-1]) if '_' in selected_id else 0
-                if batch_num > 10:
-                    st.info(f"Transfer learning: This DNN was initialized from the previous batch ({batch_num-10} models) and expanded to {batch_num} inputs.")
-            except ValueError:
+                # Extract ensemble size from ensemble_id (e.g., 'ensemble_10' means 10 models)
+                ensemble_size = int(selected_id.split('_')[-1]) if '_' in selected_id else 0
+                if ensemble_size > 0:
+                    st.info(f"💡 DNN architecture: {ensemble_size} input nodes (one per Stage 1 model)")
+            except (ValueError, IndexError):
                 # Handle non-numeric ensemble IDs
                 pass
         
-        # Input dimension growth visualization
+        # DNN architecture growth over retraining events
         if len(ensemble_ids) > 1:
             st.markdown("### DNN architecture growth")
             
-            # Extract batch numbers from ensemble IDs
-            batch_numbers = []
+            # Extract ensemble sizes from ensemble IDs
+            ensemble_sizes = []
             for eid in ensemble_ids:
                 try:
                     if '_' in eid:
-                        batch_numbers.append(int(eid.split('_')[-1]))
+                        size = int(eid.split('_')[-1])
+                        ensemble_sizes.append(size)
                 except ValueError:
                     # Skip non-numeric IDs
                     continue
             
-            if batch_numbers:
+            if ensemble_sizes:
                 fig_growth = px.line(
-                    x=range(len(batch_numbers)),
-                    y=batch_numbers,
-                    title="DNN input dimension growth (transfer learning)",
-                    labels={'x': 'Training round', 'y': 'Number of inputs (ensemble size)'},
+                    x=range(1, len(ensemble_sizes) + 1),
+                    y=ensemble_sizes,
+                    title="DNN input dimension growth (ensemble size at each retraining)",
+                    labels={'x': 'Retraining event', 'y': 'Number of inputs (ensemble size)'},
                     markers=True
                 )
                 

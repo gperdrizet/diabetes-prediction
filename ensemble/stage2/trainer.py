@@ -104,7 +104,7 @@ def train_stage2_dnn(
         epochs=epochs,
         batch_size=batch_size,
         callbacks=callback_list,
-        verbose=0
+        verbose=1
     )
     
     return model, history.history
