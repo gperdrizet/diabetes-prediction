@@ -499,12 +499,24 @@ class KDESmoothingTransformer(BaseEstimator, TransformerMixin):
         self.random_state = random_state
         
     def fit(self, X, y=None):
-        """Fit KDE for each feature."""
+        """Fit KDE for each feature with robust error handling."""
         self.kdes_ = []
         self.feature_ranges_ = []
         
         for i in range(X.shape[1]):
             feature_data = X[:, i]
+            
+            # Skip if feature contains NaN or Inf
+            if not np.all(np.isfinite(feature_data)):
+                self.kdes_.append(None)
+                self.feature_ranges_.append((0, 1))
+                continue
+            
+            # Skip if feature has zero variance (constant)
+            if np.std(feature_data) < 1e-10:
+                self.kdes_.append(None)
+                self.feature_ranges_.append((0, 1))
+                continue
             
             # Fit KDE
             try:
@@ -513,8 +525,8 @@ class KDESmoothingTransformer(BaseEstimator, TransformerMixin):
                 
                 # Store range for evaluation
                 self.feature_ranges_.append((feature_data.min(), feature_data.max()))
-            except:
-                # If KDE fails (e.g., constant feature), use None
+            except (ValueError, np.linalg.LinAlgError, ZeroDivisionError):
+                # If KDE fails (e.g., numerical issues), use None
                 self.kdes_.append(None)
                 self.feature_ranges_.append((0, 1))
         
@@ -523,15 +535,26 @@ class KDESmoothingTransformer(BaseEstimator, TransformerMixin):
         return self
     
     def transform(self, X):
-        """Apply KDE smoothing."""
-        X_smoothed = np.zeros_like(X)
+        """Apply KDE smoothing with NaN handling."""
+        X_smoothed = np.zeros_like(X, dtype=np.float64)
         
         for i in range(X.shape[1]):
             if self.kdes_[i] is not None:
-                # Evaluate KDE at data points
-                X_smoothed[:, i] = self.kdes_[i](X[:, i])
+                try:
+                    # Evaluate KDE at data points
+                    kde_values = self.kdes_[i](X[:, i])
+                    
+                    # Check for NaN/Inf values in KDE output
+                    if np.any(~np.isfinite(kde_values)):
+                        # KDE produced NaN/Inf - fall back to original feature
+                        X_smoothed[:, i] = X[:, i]
+                    else:
+                        X_smoothed[:, i] = kde_values
+                except (ValueError, np.linalg.LinAlgError):
+                    # KDE evaluation failed - fall back to original feature
+                    X_smoothed[:, i] = X[:, i]
             else:
-                # If KDE failed, return original
+                # If KDE failed during fit, return original
                 X_smoothed[:, i] = X[:, i]
         
         return X_smoothed

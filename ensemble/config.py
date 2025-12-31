@@ -666,7 +666,8 @@ def get_default_classifier_configs() -> Dict[str, ClassifierConfig]:
             classifier_class=RidgeClassifier,
             hyperparameters={
                 'alpha': lambda rng: 10 ** rng.uniform(-2, 2),
-                'solver': lambda rng: rng.choice(['auto', 'cholesky', 'lsqr']),
+                'solver': lambda rng: rng.choice(['sag', 'saga', 'lsqr']),
+                'max_iter': lambda rng: rng.choice([500, 1000, 2000]),
                 'class_weight': 'balanced',
                 'tol': 1e-3
             }
