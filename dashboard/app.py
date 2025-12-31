@@ -526,25 +526,30 @@ elif page == "Performance":
             hovertemplate='Iter %{x}<br>Stage 1 Mean: %{y:.4f}<extra></extra>'
         ))
         
-        # Add Stage 2 line (ensemble performance) - only for retraining events
-        # Filter for iterations where Stage 2 was actually retrained (non-null stage2_memory_mb)
-        stage2_retrain_df = accepted_df[accepted_df['stage2_memory_mb'].notna()]
-        
-        if not stage2_retrain_df.empty:
+        # Add Stage 2 line (ensemble performance) - only for actual retraining events
+        # Use stage2_log to get final validation AUC for each retraining
+        if not stage2_df.empty:
+            # Get final epoch (max val_auc) for each ensemble_id (retraining event)
+            stage2_final = stage2_df.loc[stage2_df.groupby('ensemble_id')['val_auc'].idxmax()]
+            
+            # Extract iteration number from ensemble_id (e.g., 'ensemble_30' -> 30)
+            stage2_final['iteration_num'] = stage2_final['ensemble_id'].str.extract(r'ensemble_(\d+)')[0].astype(int)
+            stage2_final = stage2_final.sort_values('iteration_num')
+            
             fig_combined.add_trace(go.Scatter(
-                x=stage2_retrain_df['iteration_num'],
-                y=stage2_retrain_df['stage2_val_auc'],
+                x=stage2_final['iteration_num'],
+                y=stage2_final['val_auc'],
                 mode='lines+markers',
                 line=dict(color='rgba(0, 153, 136, 0.6)', width=3, shape='hv'),
                 marker=dict(size=8, color=COLORS['tertiary']),
                 name='Stage 2 (ensemble after retraining)',
                 hovertemplate='Iter %{x}<br>Stage 2 AUC: %{y:.4f}<extra></extra>'
             ))
-        
-        # Add batch boundaries (Stage 2 DNN retraining events)
-        # Identify iterations where Stage 2 was retrained (non-null stage2_memory_mb)
-        retrain_rows = accepted_df[accepted_df['stage2_memory_mb'].notna()]
-        retrain_iterations = retrain_rows['iteration_num'].values
+            
+            # Add batch boundaries (Stage 2 DNN retraining events)
+            retrain_iterations = stage2_final['iteration_num'].values
+        else:
+            retrain_iterations = []
         
         for retrain_iter in retrain_iterations:
             fig_combined.add_vline(
@@ -625,69 +630,10 @@ elif page == "Performance":
 # DIVERSITY PAGE
 # ====================
 elif page == "Diversity":
-    st.subheader("Diversity metrics")
+    st.subheader("Ensemble composition")
     
-    if not ensemble_df.empty and 'diversity_score' in ensemble_df.columns:
-        # Diversity score over iterations
-        fig_div = go.Figure()
-        
-        # Add accepted models
-        accepted_df = ensemble_df[ensemble_df['accepted'] == 1]
-        fig_div.add_trace(go.Scatter(
-            x=accepted_df['iteration_num'],
-            y=accepted_df['diversity_score'],
-            mode='markers',
-            marker=dict(size=6, color=COLORS['accepted'], symbol='circle'),
-            name='Accepted',
-            text=accepted_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['diversity_score']:.4f}", axis=1),
-            hovertemplate='%{text}<extra></extra>'
-        ))
-        
-        # Add rejected models
-        rejected_df = ensemble_df[ensemble_df['accepted'] == 0]
-        fig_div.add_trace(go.Scatter(
-            x=rejected_df['iteration_num'],
-            y=rejected_df['diversity_score'],
-            mode='markers',
-            marker=dict(size=6, color=COLORS['rejected'], symbol='circle'),
-            name='Rejected',
-            text=rejected_df.apply(lambda row: f"Iter {row['iteration_num']}: {row['diversity_score']:.4f}", axis=1),
-            hovertemplate='%{text}<extra></extra>'
-        ))
-        
-        fig_div.update_layout(
-            title=dict(text="Diversity score over iterations", y=0.98),
-            xaxis_title="Iteration number",
-            yaxis_title="Diversity score",
-            hovermode='closest',
-            height=400,
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.08,
-                xanchor="right",
-                x=1
-            ),
-            margin=dict(t=100)
-        )
-        
-        st.plotly_chart(fig_div, width="stretch")
-        
-        # Diversity vs Stage 2 AUC scatter
-        fig_scatter = px.scatter(
-            ensemble_df,
-            x='diversity_score',
-            y='stage2_val_auc',
-            title="Diversity vs stage 2 validation AUC (ensemble performance)",
-            labels={'diversity_score': 'Diversity score', 'stage2_val_auc': 'Stage 2 validation AUC'},
-            hover_data=['iteration_num', 'accepted']
-        )
-        
-        st.plotly_chart(fig_scatter, width="stretch")
-        
+    if not ensemble_df.empty:
         # Composition Analysis - Accepted Models
-        st.subheader("Ensemble composition")
         accepted_df = ensemble_df[ensemble_df['accepted'] == 1]
         
         # Classifier type distribution in ensemble
