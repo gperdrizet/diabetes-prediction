@@ -15,5 +15,6 @@ __author__ = "Ensemble System Team"
 
 from ensemble.config import EnsembleConfig
 from ensemble.utils import compute_pipeline_hash
+from ensemble.evaluation import evaluate_stage1_ensemble
 
-__all__ = ['EnsembleConfig', 'compute_pipeline_hash']
+__all__ = ['EnsembleConfig', 'compute_pipeline_hash', 'evaluate_stage1_ensemble']

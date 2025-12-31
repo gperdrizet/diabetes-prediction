@@ -6,6 +6,7 @@ This subpackage handles:
 """
 
 from .database import EnsembleDatabase
+from .checkpoints import save_inference_checkpoint
 from .logger import (
     setup_logger,
     log_phase_start,
@@ -21,6 +22,8 @@ from .logger import (
 __all__ = [
     # Database
     'EnsembleDatabase',
+    # Checkpoints
+    'save_inference_checkpoint',
     # Logging
     'setup_logger',
     'log_phase_start',
