@@ -135,7 +135,7 @@ class SamplingConfig:
         row_sample_range: (min, max) fraction of rows to sample (stratified)
         column_sample_range: (min, max) fraction of columns to sample
     """
-    row_sample_range: Tuple[float, float] = (0.005, 0.01)
+    row_sample_range: Tuple[float, float] = (0.024, 0.048)
     column_sample_range: Tuple[float, float] = (0.30, 0.70)
 
     def validate(self):
@@ -356,9 +356,9 @@ class OptimizationConfig:
         tuner_directory: Base directory for Keras Tuner files
     """
     enabled: bool = True
-    trials_per_optimization: int = 3
+    trials_per_optimization: int = 10
     optimize_every_n_batches: Optional[int] = 1
-    max_epochs: int = 10
+    max_epochs: int = 50
     tuner_directory: str = 'keras_tuner'
 
     def validate(self):
