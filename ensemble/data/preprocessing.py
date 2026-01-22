@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder, OneHotEncoder
+from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 
 
@@ -41,8 +42,9 @@ def create_base_preprocessor(
     preprocessor : ColumnTransformer
         Configured base preprocessor.
     """
-    # Create numerical pipeline
+    # Create numerical pipeline with imputation
     numerical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
         ('scaler', StandardScaler())
     ])
     
